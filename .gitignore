@@ -1,0 +1,20 @@
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# 数据库（运行时生成）
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 系统
+.DS_Store
+Thumbs.db
