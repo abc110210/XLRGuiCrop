@@ -13,7 +13,7 @@ jobs:
       - name: Setup JDK 
         uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
 
       # 下载Spigot官方原版BuildTools编译工具
@@ -22,7 +22,7 @@ jobs:
 
       # 编译版本
       - name: Compile Spigot Core
-        run: java -jar BuildTools.jar --rev 1.26.2
+        run: java -jar BuildTools.jar
 
       # 上传编译完成的纯净jar包
       - name: Upload Spigot Artifact
