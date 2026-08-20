@@ -1,6 +1,5 @@
 package xlingran.com.db;
 
-import org.bukkit.Bukkit;
 import xlingran.com.Shan;
 import xlingran.com.config.ConfigManager;
 import xlingran.com.crop.PlotState;
@@ -39,6 +38,10 @@ public final class DatabaseManager {
 
     public DatabaseManager(Shan plugin, File dataFolder) {
         this.plugin = plugin;
+        // 目录不存在则创建，否则 SQLite 无法在其中建库文件（SQLITE_CANTOPEN）
+        if (!dataFolder.exists() && !dataFolder.mkdirs()) {
+            throw new IllegalStateException("无法创建插件数据目录: " + dataFolder.getAbsolutePath());
+        }
         File dbFile = new File(dataFolder, "data.db"); // TODO yml: storage.db-file
         this.url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
         init();
@@ -75,8 +78,9 @@ public final class DatabaseManager {
                     "duration_sec INTEGER DEFAULT 0," +
                     "PRIMARY KEY (uuid, farm_slot, plot_index))");
         } catch (SQLException e) {
-            plugin.getLogger().severe("Failed to init database: " + e.getMessage());
-            Bukkit.getPluginManager().disablePlugin(plugin);
+            // 抛异常让 onEnable 自然失败，由 Bukkit 禁用插件；
+            // 切勿在此调用 disablePlugin（enable 过程中禁用会把 jar 提前关闭，导致后续 zip file closed）
+            throw new IllegalStateException("数据库初始化失败: " + e.getMessage(), e);
         }
     }
 
