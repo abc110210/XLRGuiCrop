@@ -13,7 +13,7 @@ jobs:
       - name: Setup JDK 
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: 'temurin'
 
       # 下载Spigot官方原版BuildTools编译工具
