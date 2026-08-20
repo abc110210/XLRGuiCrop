@@ -1,32 +1,29 @@
-name: Auto Build Spigot
+name: Build
+
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+  pull_request:
 
 jobs:
-  build-spigot:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout workspace
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # 配置Java稳定环境，移除了会报错的maven缓存配置
-      - name: Setup JDK 
+      - name: Setup Java 25 (Temurin)
         uses: actions/setup-java@v4
         with:
-          java-version: '26'
-          distribution: 'temurin'
+          distribution: temurin
+          java-version: '25'
+          cache: maven
 
-      # 下载Spigot官方原版BuildTools编译工具
-      - name: Download BuildTools.jar
-        run: wget https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar
+      - name: Build with Maven
+        run: mvn -B package --file pom.xml
 
-      # 编译版本
-      - name: Compile Spigot Core
-        run: java -jar BuildTools.jar
-
-      # 上传编译完成的纯净jar包
-      - name: Upload Spigot Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: spigot
-          path: '**/spigot-*.jar'
+          name: XLRGuiCrop
+          path: target/XLRGuiCrop-1.0.0.jar
