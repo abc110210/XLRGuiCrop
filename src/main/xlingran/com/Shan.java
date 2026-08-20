@@ -46,7 +46,7 @@ public final class Shan extends JavaPlugin {
         // 6. 60s 定时结算
         cropManager.start();
 
-        getLogger().info("XLRGuiCrop enabled (v" + getPluginMeta().getVersion() + ").");
+        getLogger().info("XLRGuiCrop enabled (v" + getDescription().getVersion() + ").");
     }
 
     @Override
