@@ -174,16 +174,9 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         if (online != null) {
             targetUuid = online.getUniqueId();
         } else {
-            // API 26.2 无 getOfflinePlayerIfCached(String)，遍历曾玩过玩家按名匹配
-            OfflinePlayer op = null;
-            for (OfflinePlayer off : Bukkit.getOfflinePlayers()) {
-                String n = off.getName();
-                if (n != null && n.equalsIgnoreCase(targetName)) {
-                    op = off;
-                    break;
-                }
-            }
-            if (op == null) {
+            // 按名直接取（O(1)），用 hasPlayedBefore 过滤从未上过线的虚构 UUID，避免写脏数据
+            OfflinePlayer op = Bukkit.getOfflinePlayer(targetName);
+            if (!op.hasPlayedBefore()) {
                 sender.sendMessage(ConfigManager.MSG_PLAYER_NOT_FOUND.replace("%player%", targetName));
                 return;
             }
@@ -191,7 +184,10 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         }
         int current = db.getUnlockedPages(targetUuid);
         int total = Math.max(1, current) + delta;
-        db.setUnlockedPages(targetUuid, total);
+        if (!db.setUnlockedPages(targetUuid, total)) {
+            sender.sendMessage(ConfigManager.MSG_DB_ERROR);
+            return;
+        }
         sender.sendMessage(ConfigManager.MSG_GFUEN_UPDATE_DONE
                 .replace("%player%", targetName)
                 .replace("%count%", String.valueOf(delta))

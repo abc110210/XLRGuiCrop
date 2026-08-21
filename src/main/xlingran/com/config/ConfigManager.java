@@ -175,4 +175,6 @@ public final class ConfigManager {
     public static final String MSG_GFUEN_UPDATE_DONE = "§a已为玩家 %player% 增加 %count% 页骨粉解锁（当前共 %total% 页）。";
     /** 玩家不存在 */ // TODO yml: msg.player-not-found
     public static final String MSG_PLAYER_NOT_FOUND = "§c找不到玩家 %player%。";
+    /** 数据库操作失败 */ // TODO yml: msg.db-error
+    public static final String MSG_DB_ERROR = "§c数据库操作失败，请稍后重试。";
 }

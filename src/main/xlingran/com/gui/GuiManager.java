@@ -509,15 +509,20 @@ public final class GuiManager implements Listener {
             player.sendMessage(ConfigManager.MSG_FARM_UPGRADE_NO_MONEY.replace("%cost%", costText));
             return;
         }
-        if (economy.withdraw(player, cost)) {
-            db.setFarmLevel(uuid, h.getFarmSlot(), level + 1);
-            player.sendMessage(ConfigManager.MSG_FARM_UPGRADED
-                    .replace("%level%", String.valueOf(level + 1))
-                    .replace("%cost%", costText));
-            scheduleOpen(() -> openFarmManage(player, h.getFarmSlot()));
-        } else {
-            player.sendMessage(ConfigManager.MSG_FARM_UPGRADE_NO_MONEY.replace("%cost%", costText));
+        // 先写 DB 再扣钱：DB 失败不扣钱；扣钱失败回滚等级，避免「钱扣了等级没升」
+        if (!db.setFarmLevel(uuid, h.getFarmSlot(), level + 1)) {
+            player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            return;
         }
+        if (!economy.withdraw(player, cost)) {
+            db.setFarmLevel(uuid, h.getFarmSlot(), level);
+            player.sendMessage(ConfigManager.MSG_FARM_UPGRADE_NO_MONEY.replace("%cost%", costText));
+            return;
+        }
+        player.sendMessage(ConfigManager.MSG_FARM_UPGRADED
+                .replace("%level%", String.valueOf(level + 1))
+                .replace("%cost%", costText));
+        scheduleOpen(() -> openFarmManage(player, h.getFarmSlot()));
     }
 
     /** 创建农田 GUI：点击作物条目创建对应农田。 */
@@ -624,7 +629,11 @@ public final class GuiManager implements Listener {
     private void depositBonemeal(Player player, InventoryClickEvent e) {
         ItemStack item = e.getCurrentItem();
         int qty = item.getAmount();
-        db.addBonemeal(player.getUniqueId(), qty);
+        // 库存写入成功才清空物品，失败保留原物，避免物品凭空消失
+        if (!db.addBonemeal(player.getUniqueId(), qty)) {
+            player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            return;
+        }
         e.setCurrentItem(null);
         player.sendMessage(ConfigManager.MSG_BONEMEAL_ADD.replace("%qty%", String.valueOf(qty)));
         // 刷新当前页显示（放入后库存变化）
@@ -637,14 +646,24 @@ public final class GuiManager implements Listener {
     /** 骨粉 GUI：点击展示格取出骨粉到背包。 */
     private void takeBonemeal(Player player, InventoryClickEvent e, GuiHolder h) {
         int qty = e.getCurrentItem().getAmount();
+        // 先扣虚拟库存（成功才发物），防止 DB 失败后物品已发 = 刷物品
+        if (!db.addBonemeal(h.getUuid(), -qty)) {
+            player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            return;
+        }
         ItemStack give = new ItemStack(Material.BONE_MEAL, qty);
         HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(give);
         int accepted = qty - leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
         if (accepted <= 0) {
+            // 背包全满：退回虚拟库存
+            db.addBonemeal(h.getUuid(), qty);
             player.sendMessage(ConfigManager.MSG_INV_FULL);
             return;
         }
-        db.addBonemeal(h.getUuid(), -accepted);
+        if (accepted < qty) {
+            // 装不下的部分退回虚拟库存
+            db.addBonemeal(h.getUuid(), qty - accepted);
+        }
         if (accepted >= qty) {
             e.setCurrentItem(null);
         } else {
@@ -667,29 +686,49 @@ public final class GuiManager implements Listener {
             player.sendMessage(ConfigManager.MSG_UNLOCK_FAIL_MONEY.replace("%cost%", costText));
             return;
         }
-        if (economy.withdraw(player, cost)) {
-            db.setUnlockedPages(uuid, unlocked + 1);
-            player.sendMessage(ConfigManager.MSG_UNLOCK_SUCCESS.replace("%cost%", costText));
-            scheduleOpen(() -> openBonemeal(player, 0));
-        } else {
-            player.sendMessage(ConfigManager.MSG_UNLOCK_FAIL_MONEY.replace("%cost%", costText));
+        // 先写 DB 再扣钱：DB 失败不扣钱；扣钱失败回滚解锁页数，避免「钱扣了页数没升」
+        if (!db.setUnlockedPages(uuid, unlocked + 1)) {
+            player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            return;
         }
+        if (!economy.withdraw(player, cost)) {
+            db.setUnlockedPages(uuid, unlocked);
+            player.sendMessage(ConfigManager.MSG_UNLOCK_FAIL_MONEY.replace("%cost%", costText));
+            return;
+        }
+        player.sendMessage(ConfigManager.MSG_UNLOCK_SUCCESS.replace("%cost%", costText));
+        scheduleOpen(() -> openBonemeal(player, 0));
     }
 
     /** 取走一组物品：发给玩家真实物品并扣总数，格子清空/减量。 */
     private void takeItem(Player player, InventoryClickEvent e, GuiHolder h) {
         ItemStack cur = e.getCurrentItem().clone();
         int qty = cur.getAmount();
+        boolean isWheat = h.getResource() == WarehouseResource.WHEAT;
+        // 先扣虚拟库存（成功才发物），防止 DB 失败后物品已发 = 刷物品
+        if (isWheat ? !db.addWheat(h.getUuid(), -qty) : !db.addSeed(h.getUuid(), -qty)) {
+            player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            return;
+        }
         HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(cur);
         int accepted = qty - leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
         if (accepted <= 0) {
+            // 背包全满：退回虚拟库存
+            if (isWheat) {
+                db.addWheat(h.getUuid(), qty);
+            } else {
+                db.addSeed(h.getUuid(), qty);
+            }
             player.sendMessage(ConfigManager.MSG_INV_FULL);
             return;
         }
-        if (h.getResource() == WarehouseResource.WHEAT) {
-            db.addWheat(h.getUuid(), -accepted);
-        } else {
-            db.addSeed(h.getUuid(), -accepted);
+        if (accepted < qty) {
+            // 装不下的部分退回虚拟库存
+            if (isWheat) {
+                db.addWheat(h.getUuid(), qty - accepted);
+            } else {
+                db.addSeed(h.getUuid(), qty - accepted);
+            }
         }
         if (accepted >= qty) {
             e.setCurrentItem(null);
