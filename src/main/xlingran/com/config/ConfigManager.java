@@ -31,8 +31,8 @@ public final class ConfigManager {
     public static final int FARM_PAGE_SLOTS = 28;
     /** 上一页按钮槽位（第6行第3格，箭） */ // TODO yml: gui.farm.prev-slot
     public static final int FARM_PREV_SLOT = 47;
-    /** 下一页按钮槽位（第6行第6格，箭，28 格满才可翻页） */ // TODO yml: gui.farm.next-slot
-    public static final int FARM_NEXT_SLOT = 50;
+    /** 下一页按钮槽位（第6行第5格，箭，28 格满才可翻页） */ // TODO yml: gui.farm.next-slot
+    public static final int FARM_NEXT_SLOT = 49;
 
     // ===== 农田管理 GUI（3 行 27 格）=====
     /** 补种按钮槽位（第2行第2格，小麦种子） */ // TODO yml: gui.farm-manage.replant-slot

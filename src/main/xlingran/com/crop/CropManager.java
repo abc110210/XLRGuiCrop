@@ -109,6 +109,16 @@ public final class CropManager {
         return plots;
     }
 
+    /** 获取某农田全部种植槽并懒计算当前阶段（供生长 GUI 渲染；空槽 stage=-1）。 */
+    public List<PlotState> getPlots(UUID uuid, int farmSlot) {
+        long now = System.currentTimeMillis() / 1000;
+        List<PlotState> plots = loadOrCreatePlots(uuid, farmSlot);
+        for (PlotState p : plots) {
+            p.stage = calcStage(p, now);
+        }
+        return plots;
+    }
+
     /**
      * 补种：扫描空槽，从种子仓库→背包扣种子，每扣 1 粒补 1 格，直到补满或种子耗尽。
      *
