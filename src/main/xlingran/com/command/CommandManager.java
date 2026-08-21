@@ -24,8 +24,8 @@ import java.util.UUID;
  *
  * <ul>
  *   <li>/xlr crop create [&lt;名称&gt;] —— 打开创建农田 GUI / 直接创建农田</li>
- *   <li>/xlr crop farm —— 打开农田 GUI（正确指令；旧指令 /xlr farm 已弃用）</li>
- *   <li>/xlr crop gui —— 打开农作物仓库 GUI（正确指令；旧指令 /xlr crop 已弃用）</li>
+ *   <li>/xlr crop farm —— 打开农田 GUI</li>
+ *   <li>/xlr crop gui —— 打开农作物仓库 GUI</li>
  *   <li>/xlr crop bone —— 打开骨粉储存器 GUI</li>
  *   <li>/xlr crop menu —— 打开主菜单 GUI</li>
  *   <li>/xlr crop update bone &lt;玩家ID&gt; &lt;解锁页数&gt; —— 骨粉页数叠加解锁（管理员）</li>
@@ -54,21 +54,18 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             return true;
         }
         UUID uuid = player.getUniqueId();
-        switch (args[0].toLowerCase()) {
-            case "farm" -> {
-                // 旧指令弃用：只提示正确指令，不再直接打开
-                player.sendMessage("§c已弃用：请使用 §e/xlr crop farm §c打开农田。");
-            }
-            case "crop" -> handleCrop(player, uuid, args);
-            default -> player.sendMessage("§c未知子指令，用法: /xlr crop [create|farm|gui|bone|menu|update]");
+        // 仅保留 /xlr crop 前缀（旧 /xlr farm 等已删除）
+        if (!"crop".equalsIgnoreCase(args[0])) {
+            player.sendMessage("§c未知子指令，用法: /xlr crop [create|farm|gui|bone|menu|update]");
+            return true;
         }
+        handleCrop(player, uuid, args);
         return true;
     }
 
     private void handleCrop(Player player, UUID uuid, String[] args) {
         if (args.length == 1) {
-            // 旧指令弃用：/xlr crop 不再直接打开仓库，提示正确指令
-            player.sendMessage("§c已弃用：请使用 §e/xlr crop gui §c打开农作物仓库。");
+            player.sendMessage("§e用法: /xlr crop [create|farm|gui|bone|menu|update]");
             return;
         }
         switch (args[1].toLowerCase()) {
@@ -191,7 +188,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(List.of("farm", "crop"), args[0]);
+            return filter(List.of("crop"), args[0]);
         }
         if ("crop".equalsIgnoreCase(args[0])) {
             if (args.length == 2) {
