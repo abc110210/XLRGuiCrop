@@ -10,7 +10,7 @@ description: Multi-Functional Virtual Crops Plugin
 commands:
   xlr:
     description: XLRGuiCrop 主命令
-    usage: /xlr <farm|crop>
+    usage: /xlr farm | /xlr crop [create|farm|gui]
     aliases: []
 
 # 权限

@@ -37,7 +37,7 @@ public final class Shan extends JavaPlugin {
         gui.setCropManager(cropManager);
 
         // 5. 指令
-        CommandManager commandManager = new CommandManager(db, gui);
+        CommandManager commandManager = new CommandManager(db, gui, cropManager);
         if (getCommand("xlr") != null) {
             getCommand("xlr").setExecutor(commandManager);
             getCommand("xlr").setTabCompleter(commandManager);

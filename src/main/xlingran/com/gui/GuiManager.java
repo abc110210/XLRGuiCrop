@@ -16,7 +16,6 @@ import xlingran.com.config.ConfigManager;
 import xlingran.com.crop.CropManager;
 import xlingran.com.crop.CropRegistry;
 import xlingran.com.crop.CropType;
-import xlingran.com.crop.PlotState;
 import xlingran.com.db.DatabaseManager;
 
 import java.util.Arrays;
@@ -28,11 +27,11 @@ import java.util.UUID;
 /**
  * 四类 GUI 的构建与点击分发：
  * <ol>
- *   <li>农田 GUI（分页）：54 格，内部 28 农田位；第6行第5格固定箱子「下一页」（当前页 28 格占满才可翻页），
- *       第6行第3格「上一页」（仅非首页显示）</li>
- *   <li>二级生长 GUI：54 格全自动种植槽（纯展示，自动收割）</li>
- *   <li>农作物仓库 GUI（45 格）：小麦/种子仓库入口</li>
- *   <li>多页仓库 GUI：28 展示格 + 第6行 上一页/填充/下一页</li>
+ *   <li>农田 GUI（分页）：54 格，内部 28 农田位（空位直接留空）；第6行第3格「上一页」箭（非首页）、
+ *       第6行第6格「下一页」箭（当前页 28 格占满才可翻页）</li>
+ *   <li>农田管理 GUI（3 行）：外圈黑玻璃，第2行第2格小麦种子「点击补种」</li>
+ *   <li>农作物仓库 GUI（45 格）：小麦/种子仓库入口，空位留空</li>
+ *   <li>仓库 GUI（单页）：28 展示格 + 第6行第5格箱子「点击填充」，只能取出不能放入</li>
  * </ol>
  *
  * <p>防复制：仓库为虚拟展示层——取走即扣总数并清格；未取走的物品随 GUI 关闭销毁、总数不变，
@@ -41,7 +40,7 @@ import java.util.UUID;
 public final class GuiManager implements Listener {
 
     /** GUI 类型。 */
-    public enum GuiType { FARM, GROWTH, CROP_MENU, WAREHOUSE }
+    public enum GuiType { FARM, FARM_MANAGE, CROP_MENU, WAREHOUSE }
 
     /** 仓库资源类型。 */
     public enum WarehouseResource {
@@ -131,18 +130,17 @@ public final class GuiManager implements Listener {
         player.openInventory(inv);
     }
 
-    /** 打开二级生长 GUI（farmSlot 为全局槽位索引）。 */
-    public void openGrowth(Player player, int farmSlot) {
+    /** 打开农田管理 GUI（farmSlot 为全局槽位索引）。 */
+    public void openFarmManage(Player player, int farmSlot) {
         UUID uuid = player.getUniqueId();
-        String cropId = db.getFarmSlotCropType(uuid, farmSlot);
-        if (cropId == null || cropManager == null) {
+        if (db.getFarmSlotCropType(uuid, farmSlot) == null || cropManager == null) {
             player.sendMessage("§c该农田不存在或系统未就绪。");
             return;
         }
-        GuiHolder h = new GuiHolder(GuiType.GROWTH, uuid, 0, farmSlot, null);
-        Inventory inv = Bukkit.createInventory(h, 54, ConfigManager.GUI_GROWTH_TITLE);
+        GuiHolder h = new GuiHolder(GuiType.FARM_MANAGE, uuid, 0, farmSlot, null);
+        Inventory inv = Bukkit.createInventory(h, 27, ConfigManager.GUI_FARM_MANAGE_TITLE);
         h.setInventory(inv);
-        renderGrowth(inv, h);
+        renderFarmManage(inv);
         player.openInventory(inv);
     }
 
@@ -156,14 +154,11 @@ public final class GuiManager implements Listener {
         player.openInventory(inv);
     }
 
-    /** 打开多页仓库 GUI 指定页（resource 指定小麦/种子）。 */
-    public void openWarehouse(Player player, WarehouseResource resource, int page) {
-        if (page < 0) {
-            page = 0;
-        }
+    /** 打开仓库 GUI（单页）。 */
+    public void openWarehouse(Player player, WarehouseResource resource) {
         UUID uuid = player.getUniqueId();
-        GuiHolder h = new GuiHolder(GuiType.WAREHOUSE, uuid, page, -1, resource);
-        Inventory inv = Bukkit.createInventory(h, 54, warehouseTitle(resource, page));
+        GuiHolder h = new GuiHolder(GuiType.WAREHOUSE, uuid, 0, -1, resource);
+        Inventory inv = Bukkit.createInventory(h, 54, resource.getTitle());
         h.setInventory(inv);
         renderWarehouse(inv, h);
         player.openInventory(inv);
@@ -177,9 +172,8 @@ public final class GuiManager implements Listener {
         }
         switch (h.getType()) {
             case FARM -> renderFarm(inv, h);
-            case GROWTH -> renderGrowth(inv, h);
             case WAREHOUSE -> renderWarehouse(inv, h);
-            default -> { /* CROP_MENU 无动态数据 */ }
+            default -> { /* FARM_MANAGE / CROP_MENU 无动态数据 */ }
         }
     }
 
@@ -193,24 +187,18 @@ public final class GuiManager implements Listener {
             int raw = INNER_SLOTS[local];
             int globalIndex = h.getPage() * ConfigManager.FARM_PAGE_SLOTS + local;
             String cropId = slots.get(globalIndex);
-            contents[raw] = cropId != null ? farmIcon(CropRegistry.get(cropId)) : emptyFarmItem();
+            // 空农田位直接留空，不放任何物品
+            contents[raw] = cropId != null ? farmIcon(CropRegistry.get(cropId)) : null;
         }
         contents[ConfigManager.FARM_PREV_SLOT] = h.getPage() > 0 ? prevArrow() : frame();
-        contents[ConfigManager.FARM_NEXT_SLOT] = nextChest();
+        contents[ConfigManager.FARM_NEXT_SLOT] = nextArrow();
         inv.setContents(contents);
     }
 
-    private void renderGrowth(Inventory inv, GuiHolder h) {
-        if (cropManager == null) {
-            return;
-        }
-        long now = System.currentTimeMillis() / 1000;
-        List<PlotState> plots = cropManager.getPlots(h.getUuid(), h.getFarmSlot());
-        ItemStack[] contents = new ItemStack[54];
-        for (int i = 0; i < contents.length; i++) {
-            contents[i] = plots.isEmpty() ? frame()
-                    : growthItem(plots.get(Math.min(i, plots.size() - 1)), now);
-        }
+    private void renderFarmManage(Inventory inv) {
+        ItemStack[] contents = new ItemStack[27];
+        Arrays.fill(contents, frame());
+        contents[ConfigManager.FARM_MANAGE_REPLANT_SLOT] = replantItem();
         inv.setContents(contents);
     }
 
@@ -221,32 +209,29 @@ public final class GuiManager implements Listener {
                 List.of("§7点击查看小麦库存"));
         contents[ConfigManager.CROP_MENU_SEED_SLOT] = menuEntry(Material.WHEAT_SEEDS, "§6小麦种子仓库",
                 List.of("§7点击查看小麦种子库存"));
+        // 其余内部空位直接留空，不放任何物品
         inv.setContents(contents);
     }
 
     private void renderWarehouse(Inventory inv, GuiHolder h) {
         WarehouseResource res = h.getResource();
         long total = res == WarehouseResource.WHEAT ? db.getWheat(h.getUuid()) : db.getSeed(h.getUuid());
-        long start = (long) h.getPage() * ConfigManager.WAREHOUSE_PAGE_SLOTS * ConfigManager.WAREHOUSE_STACK;
-        long remaining = Math.max(0L, total - start);
 
         ItemStack[] contents = new ItemStack[54];
         Arrays.fill(contents, frame());
         for (int local = 0; local < ConfigManager.WAREHOUSE_PAGE_SLOTS; local++) {
             int raw = INNER_SLOTS[local];
-            if (remaining <= 0) {
+            if (total <= 0) {
                 contents[raw] = null;
                 continue;
             }
-            int put = (int) Math.min(ConfigManager.WAREHOUSE_STACK, remaining);
+            int put = (int) Math.min(ConfigManager.WAREHOUSE_STACK, total);
             ItemStack item = new ItemStack(res.getMaterial());
             item.setAmount(put);
             contents[raw] = item;
-            remaining -= put;
+            total -= put;
         }
-        contents[ConfigManager.WAREHOUSE_PREV_SLOT] = h.getPage() > 0 ? prevArrow() : frame();
         contents[ConfigManager.WAREHOUSE_FILL_SLOT] = fillChest();
-        contents[ConfigManager.WAREHOUSE_NEXT_SLOT] = nextArrow();
         inv.setContents(contents);
     }
 
@@ -265,13 +250,13 @@ public final class GuiManager implements Listener {
         if (e.getClickedInventory() == null) {
             return;
         }
-        // 只处理点击自定义 GUI 本体（top），玩家背包部分直接拦截（防放回复制）
+        // 只处理点击自定义 GUI 本体（top），玩家背包部分直接拦截（仓库只能取出不能放入）
         if (!e.getClickedInventory().equals(top)) {
             return;
         }
         switch (h.getType()) {
             case FARM -> handleFarmClick(player, e, h);
-            case GROWTH -> { /* 纯展示，无交互 */ }
+            case FARM_MANAGE -> handleFarmManageClick(player, h);
             case CROP_MENU -> handleCropMenuClick(player, e);
             case WAREHOUSE -> handleWarehouseClick(player, e, h);
         }
@@ -305,36 +290,41 @@ public final class GuiManager implements Listener {
         }
         int globalIndex = h.getPage() * ConfigManager.FARM_PAGE_SLOTS + local;
         if (db.hasFarmSlot(uuid, globalIndex)) {
-            scheduleOpen(() -> openGrowth(player, globalIndex));
+            scheduleOpen(() -> openFarmManage(player, globalIndex));
+        }
+    }
+
+    private void handleFarmManageClick(Player player, GuiHolder h) {
+        if (cropManager == null) {
+            return;
+        }
+        int replanted = cropManager.replant(player, h.getUuid(), h.getFarmSlot());
+        if (replanted > 0) {
+            player.sendMessage(ConfigManager.MSG_REPLANT_DONE
+                    .replace("%count%", String.valueOf(replanted))
+                    .replace("%seed%", String.valueOf(replanted * ConfigManager.REPLANT_COST_SEED)));
+        } else if (replanted == 0) {
+            player.sendMessage(ConfigManager.MSG_REPLANT_EMPTY);
         } else {
-            player.sendMessage(ConfigManager.MSG_EMPTY_FARM_CLICK);
+            player.sendMessage(ConfigManager.MSG_NO_SEED);
         }
     }
 
     private void handleCropMenuClick(Player player, InventoryClickEvent e) {
         int raw = e.getSlot();
         if (raw == ConfigManager.CROP_MENU_WHEAT_SLOT) {
-            scheduleOpen(() -> openWarehouse(player, WarehouseResource.WHEAT, 0));
+            scheduleOpen(() -> openWarehouse(player, WarehouseResource.WHEAT));
         } else if (raw == ConfigManager.CROP_MENU_SEED_SLOT) {
-            scheduleOpen(() -> openWarehouse(player, WarehouseResource.SEED, 0));
+            scheduleOpen(() -> openWarehouse(player, WarehouseResource.SEED));
         }
     }
 
     private void handleWarehouseClick(Player player, InventoryClickEvent e, GuiHolder h) {
-        int raw = e.getSlot();
-        if (raw == ConfigManager.WAREHOUSE_PREV_SLOT && h.getPage() > 0) {
-            scheduleOpen(() -> openWarehouse(player, h.getResource(), h.getPage() - 1));
-            return;
-        }
-        if (raw == ConfigManager.WAREHOUSE_NEXT_SLOT) {
-            scheduleOpen(() -> openWarehouse(player, h.getResource(), h.getPage() + 1));
-            return;
-        }
-        if (raw == ConfigManager.WAREHOUSE_FILL_SLOT) {
+        if (e.getSlot() == ConfigManager.WAREHOUSE_FILL_SLOT) {
             fillPage(player, e.getInventory(), h);
             return;
         }
-        int local = rawToLocal(raw);
+        int local = rawToLocal(e.getSlot());
         if (local < 0) {
             return;
         }
@@ -424,10 +414,6 @@ public final class GuiManager implements Listener {
         return ConfigManager.GUI_FARM_TITLE + " §8· 第 " + (page + 1) + " 页";
     }
 
-    private String warehouseTitle(WarehouseResource res, int page) {
-        return res.getTitle() + " §8· 第 " + (page + 1) + " 页";
-    }
-
     // ================= 物品构建 =================
 
     private ItemStack frame() {
@@ -440,23 +426,12 @@ public final class GuiManager implements Listener {
         return item;
     }
 
-    private ItemStack emptyFarmItem() {
-        ItemStack item = new ItemStack(ConfigManager.EMPTY_FARM_MATERIAL);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName("§7空农田位");
-            meta.setLore(List.of("§7使用 §b/xlr crop wheat §7创建农田"));
-            item.setItemMeta(meta);
-        }
-        return item;
-    }
-
     private ItemStack farmIcon(CropType ct) {
         ItemStack item = new ItemStack(ct == null ? Material.WHEAT : ct.getIcon());
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName("§b" + (ct == null ? "农田" : ct.getName()));
-            meta.setLore(List.of("§7点击进入生长管理"));
+            meta.setLore(List.of("§7点击进入农田管理"));
             item.setItemMeta(meta);
         }
         return item;
@@ -477,17 +452,18 @@ public final class GuiManager implements Listener {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName("§a下一页");
+            meta.setLore(List.of("§7点击进入下一页", "§7（需当前页 28 格农田全部创建）"));
             item.setItemMeta(meta);
         }
         return item;
     }
 
-    private ItemStack nextChest() {
-        ItemStack item = new ItemStack(Material.CHEST);
+    private ItemStack replantItem() {
+        ItemStack item = new ItemStack(Material.WHEAT_SEEDS);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName("§a下一页");
-            meta.setLore(List.of("§7点击进入下一页", "§7（需当前页 28 格农田全部创建）"));
+            meta.setDisplayName("§a点击补种");
+            meta.setLore(List.of("§7补种该农田缺少的种植格", "§7优先扣除种子仓库，不足扣背包"));
             item.setItemMeta(meta);
         }
         return item;
@@ -513,55 +489,5 @@ public final class GuiManager implements Listener {
             item.setItemMeta(meta);
         }
         return item;
-    }
-
-    private ItemStack growthItem(PlotState p, long now) {
-        if (p.stage >= 7) {
-            ItemStack item = new ItemStack(Material.WHEAT);
-            ItemMeta meta = item.getItemMeta();
-            if (meta != null) {
-                meta.setDisplayName("§e已成熟");
-                meta.setLore(List.of("§7等待自动收割…", "§7产量：小麦+1 · 种子+1"));
-                item.setItemMeta(meta);
-            }
-            return item;
-        }
-        Material mat = p.stage < 3 ? Material.WHEAT_SEEDS : Material.WHEAT;
-        ItemStack item = new ItemStack(mat);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.setDisplayName("§a生长中 Lv." + p.stage);
-            meta.setLore(progressLore(p, now));
-            item.setItemMeta(meta);
-        }
-        return item;
-    }
-
-    private List<String> progressLore(PlotState p, long now) {
-        long elapsed = Math.max(0L, now - p.startedAt);
-        long remain = Math.max(0L, p.durationSec - elapsed);
-        int filled = Math.min(10, (int) (elapsed * 10 / Math.max(1, p.durationSec)));
-        StringBuilder bar = new StringBuilder("§7[");
-        for (int i = 0; i < 10; i++) {
-            bar.append(i < filled ? "§a■" : "§8□");
-        }
-        bar.append("§7]");
-        return List.of(
-                bar.toString(),
-                "§7阶段 " + p.stage + " / 7",
-                "§7剩余 " + formatTime(remain));
-    }
-
-    private String formatTime(long sec) {
-        long h = sec / 3600;
-        long m = (sec % 3600) / 60;
-        long s = sec % 60;
-        if (h > 0) {
-            return h + " 小时 " + m + " 分";
-        }
-        if (m > 0) {
-            return m + " 分 " + s + " 秒";
-        }
-        return s + " 秒";
     }
 }

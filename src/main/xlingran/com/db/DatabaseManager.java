@@ -144,6 +144,19 @@ public final class DatabaseManager {
         }
     }
 
+    /** 从种子仓库扣除，返回实际扣除数（不足时扣 0..need）。 */
+    public int consumeSeed(UUID uuid, int need) {
+        if (need <= 0) {
+            return 0;
+        }
+        long seed = getSeed(uuid);
+        int take = (int) Math.min(seed, need);
+        if (take > 0) {
+            addSeed(uuid, -take);
+        }
+        return take;
+    }
+
     // ================= farm_slots（农田分页） =================
 
     /** 已占用的全部全局槽位索引（升序）。 */
