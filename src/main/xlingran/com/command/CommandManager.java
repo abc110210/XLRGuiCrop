@@ -174,7 +174,15 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         if (online != null) {
             targetUuid = online.getUniqueId();
         } else {
-            OfflinePlayer op = Bukkit.getOfflinePlayerIfCached(targetName);
+            // API 26.2 无 getOfflinePlayerIfCached(String)，遍历曾玩过玩家按名匹配
+            OfflinePlayer op = null;
+            for (OfflinePlayer off : Bukkit.getOfflinePlayers()) {
+                String n = off.getName();
+                if (n != null && n.equalsIgnoreCase(targetName)) {
+                    op = off;
+                    break;
+                }
+            }
             if (op == null) {
                 sender.sendMessage(ConfigManager.MSG_PLAYER_NOT_FOUND.replace("%player%", targetName));
                 return;
