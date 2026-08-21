@@ -314,6 +314,7 @@ public final class CropManager {
                 long wheatGain = 0L;
                 long seedGain = 0L;
                 int seedsFromWarehouse = 0;
+                int consumedBonemeal = 0;
                 for (PlotState p : plots) {
                     if (p.stage == STAGE_EMPTY) {
                         continue;
@@ -338,8 +339,9 @@ public final class CropManager {
                         p.stage = 0;
                         p.startedAt = now - remainder;
                         int duration = ct.randomDurationSec();
-                        // 骨粉加速：消耗 1 骨粉，成熟时长缩短 20%（仅自动重播生效）
-                        if (db.consumeBonemeal(uuid, 1) > 0) {
+                        // 骨粉加速：仅当该农田开启「骨粉加速」开关时，消耗 1 骨粉缩短 20% 时长（仅自动重播生效）
+                        if (db.getFarmBonemealFast(uuid, fs) && db.consumeBonemeal(uuid, 1) > 0) {
+                            consumedBonemeal++;
                             duration = (int) Math.max(1, duration * ConfigManager.BONEMEAL_FAST_FACTOR);
                         }
                         p.durationSec = duration;
@@ -356,6 +358,9 @@ public final class CropManager {
                         changed = true;
                     } else {
                         db.addSeed(uuid, seedsFromWarehouse);
+                        if (consumedBonemeal > 0) {
+                            db.addBonemeal(uuid, consumedBonemeal);
+                        }
                         plugin.getLogger().warning("收割结算落库失败，已回滚该农场: uuid=" + uuid + " farmSlot=" + fs);
                     }
                 }

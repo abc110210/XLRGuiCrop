@@ -54,19 +54,25 @@ public final class ConfigManager {
     /** 第 2 页起下一页槽位（第6行第7格，箭） */ // TODO yml: gui.farm.next-slot-page2
     public static final int FARM_NEXT_SLOT_PAGE2 = 51;
 
-    /** 骨粉储存器入口槽位（第6行第8格，骨粉图标） */ // TODO yml: gui.farm.bonemeal-slot
-    public static final int FARM_BONEMEAL_SLOT = 52;
+    /** 骨粉储存器入口槽位（第6行第9格，骨粉图标） */ // TODO yml: gui.farm.bonemeal-slot
+    public static final int FARM_BONEMEAL_SLOT = 53;
 
     /** 农田 GUI 下一页按钮槽位：第 1 页在第 5 格，第 2 页起在第 7 格。 */
     public static int farmNextSlot(int page) {
         return page <= 0 ? FARM_NEXT_SLOT_PAGE1 : FARM_NEXT_SLOT_PAGE2;
     }
 
-    // ===== 农田管理 GUI（3 行 27 格）=====
+    // ===== 农田管理 GUI（6 行 54 格）=====
     /** 补种按钮槽位（第2行第2格，小麦种子） */ // TODO yml: gui.farm-manage.replant-slot
     public static final int FARM_MANAGE_REPLANT_SLOT = 10;
     /** 农田升级按钮槽位（第2行第4格，漏斗） */ // TODO yml: gui.farm-manage.upgrade-slot
     public static final int FARM_MANAGE_UPGRADE_SLOT = 12;
+    /** 骨粉加速开关槽位（第2行第8格，拉杆） */ // TODO yml: gui.farm-manage.fast-slot
+    public static final int FARM_MANAGE_FAST_SLOT = 16;
+    /** 删除农田槽位（第3行第5格，屏障） */ // TODO yml: gui.farm-manage.delete-slot
+    public static final int FARM_MANAGE_DELETE_SLOT = 22;
+    /** 返回农田槽位（第6行第1格，箭） */ // TODO yml: gui.farm-manage.back-slot
+    public static final int FARM_MANAGE_BACK_SLOT = 45;
     /** 农田最高等级 */ // TODO yml: farm.upgrade.max-level
     public static final int FARM_MAX_LEVEL = 3;
     /** 升级到 Lv.2 消耗金币 */ // TODO yml: farm.upgrade.cost-2
@@ -78,15 +84,15 @@ public final class ConfigManager {
     /** 作物展示起始槽位（第2行第2格） */ // TODO yml: gui.create-crop.start-slot
     public static final int CREATE_CROP_START_SLOT = 10;
 
-    // ===== 农作物仓库 GUI（6 行 54 格，多页）=====
+    // ===== 农作物仓库 GUI（6 行 54 格，共 2 页）=====
     /** 小麦种子仓库入口槽位（第1页第2行第2格） */ // TODO yml: gui.crop-menu.seed-slot
     public static final int CROP_MENU_SEED_SLOT = 10;
     /** 小麦仓库入口槽位（第1页第2行第3格） */ // TODO yml: gui.crop-menu.wheat-slot
     public static final int CROP_MENU_WHEAT_SLOT = 11;
-    /** 下一页槽位（第6行第5格，箭） */ // TODO yml: gui.crop-menu.next-slot
+    /** 导航槽位（第6行第5格，箭）：第 1 页显示下一页、第 2 页显示上一页 */ // TODO yml: gui.crop-menu.next-slot
     public static final int CROP_MENU_NEXT_SLOT = 49;
-    /** 上一页槽位（第6行第3格，箭） */ // TODO yml: gui.crop-menu.prev-slot
-    public static final int CROP_MENU_PREV_SLOT = 47;
+    /** 导航槽位（与 NEXT 同格，语义上的上一页） */ // TODO yml: gui.crop-menu.prev-slot
+    public static final int CROP_MENU_PREV_SLOT = 49;
 
     // ===== 仓库 GUI（单页）=====
     /** 每页展示格数 */ // TODO yml: gui.warehouse.page-slots
@@ -95,6 +101,8 @@ public final class ConfigManager {
     public static final int WAREHOUSE_STACK = 64;
     /** 填充按钮槽位（第6行第5格，箱子，固定） */ // TODO yml: gui.warehouse.fill-slot
     public static final int WAREHOUSE_FILL_SLOT = 49;
+    /** 返回农作物仓库槽位（第6行第3格，箭） */ // TODO yml: gui.warehouse.back-slot
+    public static final int WAREHOUSE_BACK_SLOT = 47;
 
     // ===== 骨粉储存器 GUI（多页）=====
     /** 每页展示格数 */ // TODO yml: gui.bonemeal.page-slots
@@ -105,6 +113,8 @@ public final class ConfigManager {
     public static final int BONEMEAL_NEXT_SLOT = 51;
     /** 上一页槽位（第6行第3格，箭） */ // TODO yml: gui.bonemeal.prev-slot
     public static final int BONEMEAL_PREV_SLOT = 47;
+    /** 返回农田槽位（第1页第6行第3格，箭，与上一页同格按页显示） */ // TODO yml: gui.bonemeal.back-slot
+    public static final int BONEMEAL_BACK_SLOT = 47;
     /** 解锁下一页基础金币（解锁第 N 页 = base × (N-1)） */ // TODO yml: gui.bonemeal.unlock-base
     public static final int BONEMEAL_UNLOCK_BASE = 1000;
     /** 骨粉加速系数（成熟时长 ×0.8） */ // TODO yml: gui.bonemeal.fast-factor
@@ -177,4 +187,14 @@ public final class ConfigManager {
     public static final String MSG_PLAYER_NOT_FOUND = "§c找不到玩家 %player%。";
     /** 数据库操作失败 */ // TODO yml: msg.db-error
     public static final String MSG_DB_ERROR = "§c数据库操作失败，请稍后重试。";
+    /** 骨粉加速已切换 */ // TODO yml: msg.bonemeal-fast-toggled
+    public static final String MSG_BONEMEAL_FAST_TOGGLED = "§a骨粉加速已%state%。";
+    /** 删除农田确认 */ // TODO yml: msg.farm-delete-confirm
+    public static final String MSG_DELETE_CONFIRM = "§e你确定要删除这个农田吗？如果确定，请输入 §a删除 §e；否则请输入 §c取消 §e。";
+    /** 删除农田成功 */ // TODO yml: msg.farm-delete-done
+    public static final String MSG_DELETE_DONE = "§a该农田已删除。";
+    /** 取消删除农田 */ // TODO yml: msg.farm-delete-cancelled
+    public static final String MSG_DELETE_CANCELLED = "§e已取消删除该农田。";
+    /** 删除确认输入提示 */ // TODO yml: msg.farm-delete-hint
+    public static final String MSG_DELETE_HINT = "§e请输入 §a删除 §e确认，或 §c取消 §e放弃。";
 }

@@ -100,16 +100,24 @@ public final class DatabaseManager {
                     st.execute("ALTER TABLE player_data ADD COLUMN bonemeal_unlocked INTEGER DEFAULT 1");
                 }
             }
-            // 旧库迁移：farm_slots 补齐农田等级列
+            // 旧库迁移：farm_slots 补齐农田等级列与骨粉加速开关列
             try (ResultSet rs = st.executeQuery("PRAGMA table_info(farm_slots)")) {
                 boolean hasLevel = false;
+                boolean hasFast = false;
                 while (rs.next()) {
-                    if ("level".equals(rs.getString("name"))) {
+                    String col = rs.getString("name");
+                    if ("level".equals(col)) {
                         hasLevel = true;
+                    }
+                    if ("bonemeal_fast".equals(col)) {
+                        hasFast = true;
                     }
                 }
                 if (!hasLevel) {
                     st.execute("ALTER TABLE farm_slots ADD COLUMN level INTEGER DEFAULT 1");
+                }
+                if (!hasFast) {
+                    st.execute("ALTER TABLE farm_slots ADD COLUMN bonemeal_fast INTEGER DEFAULT 0");
                 }
             }
         } catch (SQLException e) {
@@ -387,6 +395,34 @@ public final class DatabaseManager {
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
             logError(e, "setFarmLevel");
+            return false;
+        }
+    }
+
+    /** 该农田是否开启骨粉加速（默认关）。 */
+    public boolean getFarmBonemealFast(UUID uuid, int globalIndex) {
+        String sql = "SELECT bonemeal_fast FROM farm_slots WHERE uuid=? AND slot_index=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setInt(2, globalIndex);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt("bonemeal_fast") > 0;
+            }
+        } catch (SQLException e) {
+            logError(e, "getFarmBonemealFast");
+            return false;
+        }
+    }
+
+    public boolean setFarmBonemealFast(UUID uuid, int globalIndex, boolean on) {
+        String sql = "UPDATE farm_slots SET bonemeal_fast=? WHERE uuid=? AND slot_index=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, on ? 1 : 0);
+            ps.setString(2, uuid.toString());
+            ps.setInt(3, globalIndex);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            logError(e, "setFarmBonemealFast");
             return false;
         }
     }

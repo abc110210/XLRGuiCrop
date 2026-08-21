@@ -23,11 +23,12 @@ import java.util.UUID;
  * /xlr 指令分发与 Tab 补全。
  *
  * <ul>
- *   <li>/xlr farm —— 打开农田 GUI（第 1 页，兼容旧指令）</li>
- *   <li>/xlr crop —— 打开农作物仓库 GUI（兼容旧指令）</li>
- *   <li>/xlr crop create &lt;名称&gt; —— 创建农田（消耗 1 粒种子：种子仓库→背包）</li>
- *   <li>/xlr crop farm —— 打开农田 GUI</li>
- *   <li>/xlr crop gui —— 打开农作物仓库 GUI</li>
+ *   <li>/xlr crop create [&lt;名称&gt;] —— 打开创建农田 GUI / 直接创建农田</li>
+ *   <li>/xlr crop farm —— 打开农田 GUI（正确指令；旧指令 /xlr farm 已弃用）</li>
+ *   <li>/xlr crop gui —— 打开农作物仓库 GUI（正确指令；旧指令 /xlr crop 已弃用）</li>
+ *   <li>/xlr crop bone —— 打开骨粉储存器 GUI</li>
+ *   <li>/xlr crop menu —— 打开主菜单 GUI</li>
+ *   <li>/xlr crop update bone &lt;玩家ID&gt; &lt;解锁页数&gt; —— 骨粉页数叠加解锁（管理员）</li>
  * </ul>
  */
 public final class CommandManager implements CommandExecutor, TabCompleter {
@@ -49,32 +50,25 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length == 0) {
-            player.sendMessage("§e用法: /xlr farm | /xlr crop [create|farm|gui]");
+            player.sendMessage("§e用法: /xlr crop [create|farm|gui|bone|menu|update]");
             return true;
         }
         UUID uuid = player.getUniqueId();
         switch (args[0].toLowerCase()) {
             case "farm" -> {
-                if (!player.hasPermission("xlr.farm")) {
-                    player.sendMessage(ConfigManager.MSG_NO_PERM);
-                    return true;
-                }
-                gui.openFarm(player, 0);
+                // 旧指令弃用：只提示正确指令，不再直接打开
+                player.sendMessage("§c已弃用：请使用 §e/xlr crop farm §c打开农田。");
             }
             case "crop" -> handleCrop(player, uuid, args);
-            default -> player.sendMessage("§c未知子指令，用法: /xlr farm | /xlr crop [create|farm|gui]");
+            default -> player.sendMessage("§c未知子指令，用法: /xlr crop [create|farm|gui|bone|menu|update]");
         }
         return true;
     }
 
     private void handleCrop(Player player, UUID uuid, String[] args) {
         if (args.length == 1) {
-            // 兼容旧指令：/xlr crop 打开农作物仓库
-            if (!player.hasPermission("xlr.crop")) {
-                player.sendMessage(ConfigManager.MSG_NO_PERM);
-                return;
-            }
-            gui.openCropMenu(player, 0);
+            // 旧指令弃用：/xlr crop 不再直接打开仓库，提示正确指令
+            player.sendMessage("§c已弃用：请使用 §e/xlr crop gui §c打开农作物仓库。");
             return;
         }
         switch (args[1].toLowerCase()) {
@@ -118,18 +112,18 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 }
                 gui.openMenu(player);
             }
-            case "gufen" -> {
+            case "update" -> {
                 if (!player.hasPermission("xlr.admin")) {
                     player.sendMessage(ConfigManager.MSG_NO_PERM);
                     return;
                 }
-                if (args.length < 5 || !"update".equalsIgnoreCase(args[2])) {
-                    player.sendMessage("§c用法: /xlr crop gufen update <玩家ID> <解锁页数>");
+                if (args.length < 5 || !"bone".equalsIgnoreCase(args[2])) {
+                    player.sendMessage("§c用法: /xlr crop update bone <玩家ID> <解锁页数>");
                     return;
                 }
-                gufenUpdate(player, args[3], args[4]);
+                updateBonemealPages(player, args[3], args[4]);
             }
-            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|gufen]");
+            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|update]");
         }
     }
 
@@ -156,8 +150,8 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         gui.openFarm(player, globalIndex / ConfigManager.FARM_PAGE_SLOTS);
     }
 
-    /** 骨粉页数叠加解锁：/xlr crop gufen update <玩家ID> <页数>。 */
-    private void gufenUpdate(Player sender, String targetName, String countStr) {
+    /** 骨粉页数叠加解锁：/xlr crop update bone <玩家ID> <页数>。 */
+    private void updateBonemealPages(Player sender, String targetName, String countStr) {
         int delta;
         try {
             delta = Integer.parseInt(countStr);
@@ -201,14 +195,14 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         }
         if ("crop".equalsIgnoreCase(args[0])) {
             if (args.length == 2) {
-                return filter(List.of("create", "farm", "gui", "bone", "menu", "gufen"), args[1]);
+                return filter(List.of("create", "farm", "gui", "bone", "menu", "update"), args[1]);
             }
             if (args.length == 3 && "create".equalsIgnoreCase(args[1])) {
                 // 创建指令只接受英文作物 id
                 return filter(new ArrayList<>(CropRegistry.all().keySet()), args[2]);
             }
-            if (args.length == 3 && "gufen".equalsIgnoreCase(args[1])) {
-                return filter(List.of("update"), args[2]);
+            if (args.length == 3 && "update".equalsIgnoreCase(args[1])) {
+                return filter(List.of("bone"), args[2]);
             }
         }
         return Collections.emptyList();
