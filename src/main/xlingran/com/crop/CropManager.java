@@ -137,9 +137,15 @@ public final class CropManager {
      */
     public int createFarm(Player player, CropType ct) {
         UUID uuid = player.getUniqueId();
-        long available = (long) countBackpackSeeds(player) + db.getSeed(uuid);
-        if (available <= 0) {
-            return -1;
+        long available;
+        if (ct.isConsumeSeed()) {
+            available = (long) countBackpackSeeds(player) + db.getSeed(uuid);
+            if (available <= 0) {
+                return -1;
+            }
+        } else {
+            // 不消耗种子的作物：不依赖种子，直接满种 54 格
+            available = PLOT_COUNT;
         }
         int globalIndex = db.findFirstFreeFarmSlot(uuid);
         // 槽位写入失败（已占用或 SQL 异常）：不扣种子，直接中止，避免种子凭空消失
@@ -148,8 +154,8 @@ public final class CropManager {
             return -1;
         }
         int plant = (int) Math.min(available, PLOT_COUNT);
-        int consumed = tryConsumeSeeds(player, uuid, plant, false);
-        if (consumed <= 0) {
+        int consumed = ct.isConsumeSeed() ? tryConsumeSeeds(player, uuid, plant, false) : 0;
+        if (ct.isConsumeSeed() && consumed <= 0) {
             // 种子扣取异常（理论不可达）：回滚槽位
             db.removeFarmSlot(uuid, globalIndex);
             return -1;
@@ -255,14 +261,21 @@ public final class CropManager {
         if (empty == 0) {
             return 0;
         }
-        int[] consumed = consumeSeedsSplit(player, uuid, empty);
-        int consumedTotal = consumed[0] + consumed[1];
-        if (consumedTotal <= 0) {
-            return -1;
+        // 不消耗种子的作物：直接补满，无需扣种
+        int seedCost = ct.isConsumeSeed() ? empty : 0;
+        int[] consumed = new int[]{0, 0};
+        int consumedTotal = 0;
+        if (seedCost > 0) {
+            consumed = consumeSeedsSplit(player, uuid, seedCost);
+            consumedTotal = consumed[0] + consumed[1];
+            if (consumedTotal <= 0) {
+                return -1;
+            }
         }
+        int replantTarget = ct.isConsumeSeed() ? consumedTotal : empty;
         int replanted = 0;
         for (PlotState p : plots) {
-            if (replanted >= consumedTotal) {
+            if (replanted >= replantTarget) {
                 break;
             }
             if (p.stage == STAGE_EMPTY) {
@@ -275,9 +288,18 @@ public final class CropManager {
         if (db.savePlots(uuid, farmSlot, plots)) {
             return replanted;
         }
-        // 落库失败：退还已扣仓库种子，避免种子凭空消失
+        // 落库失败：退还已扣仓库种子 + 背包种子（真实物品，否则会凭空消失）；
+        // 背包放不下部分转存种子仓库，绝不让真实物品丢失
         plugin.getLogger().warning("补种落库失败，已退还种子: uuid=" + uuid + " farmSlot=" + farmSlot);
         db.addSeed(uuid, consumed[0]);
+        if (consumed[1] > 0) {
+            HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(new ItemStack(Material.WHEAT_SEEDS, consumed[1]));
+            int notRefunded = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
+            if (notRefunded > 0) {
+                db.addSeed(uuid, notRefunded);
+                plugin.getLogger().warning("补种回滚背包种子部分转存仓库: uuid=" + uuid + " farmSlot=" + farmSlot + " count=" + notRefunded);
+            }
+        }
         return -1;
     }
 
@@ -299,75 +321,109 @@ public final class CropManager {
             List<Integer> farmSlots = db.getFarmSlotIndexes(uuid);
             boolean changed = false;
             for (int fs : farmSlots) {
-                CropType ct = CropRegistry.get(db.getFarmSlotCropType(uuid, fs));
-                if (ct == null) {
-                    continue;
-                }
-                int level = db.getFarmLevel(uuid, fs);
-                long wheatYield = (long) ct.getYieldWheat() + Math.max(0, level - 1);
-                long seedYield = ct.getYieldSeed();
-                List<PlotState> plots = db.loadPlots(uuid, fs);
-                if (plots.isEmpty()) {
-                    continue;
-                }
-                boolean slotChanged = false;
-                long wheatGain = 0L;
-                long seedGain = 0L;
-                int seedsFromWarehouse = 0;
-                int consumedBonemeal = 0;
-                for (PlotState p : plots) {
-                    if (p.stage == STAGE_EMPTY) {
-                        continue;
-                    }
-                    long elapsed = now - p.startedAt;
-                    if (elapsed < p.durationSec) {
-                        continue; // 未成熟
-                    }
-                    // 多周期补算：自 started_at 起已完成的完整周期数（至少 1，防御异常数据）
-                    int cycles = (int) (elapsed / Math.max(1, p.durationSec));
-                    if (cycles < 1) {
-                        cycles = 1;
-                    }
-                    wheatGain += wheatYield * cycles;
-                    seedGain += seedYield * cycles;
-                    // 重播下一周期：消耗 1 粒种子（仓库→背包），不足则留空
-                    int[] consumed = consumeSeedsSplit(player, uuid, ConfigManager.REPLANT_COST_SEED);
-                    seedsFromWarehouse += consumed[0];
-                    if (consumed[0] + consumed[1] >= ConfigManager.REPLANT_COST_SEED) {
-                        // 保留本周期未完成的剩余时间，继续推进新周期
-                        long remainder = elapsed % p.durationSec;
-                        p.stage = 0;
-                        p.startedAt = now - remainder;
-                        int duration = ct.randomDurationSec();
-                        // 骨粉加速：仅当该农田开启「骨粉加速」开关时，消耗 1 骨粉缩短 20% 时长（仅自动重播生效）
-                        if (db.getFarmBonemealFast(uuid, fs) && db.consumeBonemeal(uuid, 1) > 0) {
-                            consumedBonemeal++;
-                            duration = (int) Math.max(1, duration * ConfigManager.BONEMEAL_FAST_FACTOR);
-                        }
-                        p.durationSec = duration;
-                    } else {
-                        p.stage = STAGE_EMPTY;
-                        p.startedAt = 0;
-                        p.durationSec = 0;
-                    }
-                    slotChanged = true;
-                }
-                if (slotChanged) {
-                    // 原子结算：槽位 upsert + 产量入账 单事务；失败则退还仓库种子并跳过，防重复收割
-                    if (db.settleHarvest(uuid, fs, plots, wheatGain, seedGain)) {
-                        changed = true;
-                    } else {
-                        db.addSeed(uuid, seedsFromWarehouse);
-                        if (consumedBonemeal > 0) {
-                            db.addBonemeal(uuid, consumedBonemeal);
-                        }
-                        plugin.getLogger().warning("收割结算落库失败，已回滚该农场: uuid=" + uuid + " farmSlot=" + fs);
-                    }
+                // 单块农田异常隔离：不影响本玩家其他农田与整个 tick 结算
+                try {
+                    changed = settleFarm(player, uuid, fs, now) || changed;
+                } catch (RuntimeException ex) {
+                    plugin.getLogger().warning("农田结算异常已隔离: uuid=" + uuid + " farmSlot=" + fs + " ex=" + ex);
                 }
             }
             if (changed) {
                 gui.refresh(player);
             }
         }
+    }
+
+    /**
+     * 结算单个农田：处理成熟槽位（多周期补算）、扣种重播/骨粉加速、原子落库。
+     *
+     * <p>防不一致：槽位重置 + 产量入账走 {@link DatabaseManager#settleHarvest} 单事务；
+     * 落库失败则退还已扣仓库/背包种子与骨粉并跳过该农场，避免下个 tick 对仍成熟槽位重复收割刷产量。
+     *
+     * @return true 表示该农田发生了状态变化（需要刷新 GUI）
+     */
+    private boolean settleFarm(Player player, UUID uuid, int fs, long now) {
+        CropType ct = CropRegistry.get(db.getFarmSlotCropType(uuid, fs));
+        if (ct == null) {
+            return false;
+        }
+        int level = db.getFarmLevel(uuid, fs);
+        long wheatYield = (long) ct.getYieldWheat() + Math.max(0, level - 1);
+        long seedYield = ct.getYieldSeed();
+        List<PlotState> plots = db.loadPlots(uuid, fs);
+        if (plots.isEmpty()) {
+            return false;
+        }
+        boolean slotChanged = false;
+        long wheatGain = 0L;
+        long seedGain = 0L;
+        int seedsFromWarehouse = 0;
+        int seedsFromBackpack = 0;
+        int consumedBonemeal = 0;
+        for (PlotState p : plots) {
+            if (p.stage == STAGE_EMPTY) {
+                continue;
+            }
+            long elapsed = now - p.startedAt;
+            if (elapsed < p.durationSec) {
+                continue; // 未成熟
+            }
+            // 多周期补算：自 started_at 起已完成的完整周期数（至少 1，防御异常数据）
+            int cycles = (int) (elapsed / Math.max(1, p.durationSec));
+            if (cycles < 1) {
+                cycles = 1;
+            }
+            wheatGain += wheatYield * cycles;
+            seedGain += seedYield * cycles;
+            // 重播下一周期：消耗 1 粒种子（仓库→背包），不足则留空；不消耗种子的作物直接重播
+            int seedCost = ct.isConsumeSeed() ? ConfigManager.REPLANT_COST_SEED : 0;
+            int[] consumed = new int[]{0, 0};
+            if (seedCost > 0) {
+                consumed = consumeSeedsSplit(player, uuid, seedCost);
+                seedsFromWarehouse += consumed[0];
+                seedsFromBackpack += consumed[1];
+            }
+            if (consumed[0] + consumed[1] >= seedCost) {
+                // 保留本周期未完成的剩余时间，继续推进新周期
+                long remainder = elapsed % p.durationSec;
+                p.stage = 0;
+                p.startedAt = now - remainder;
+                int duration = ct.randomDurationSec();
+                // 骨粉加速：仅当该农田开启「骨粉加速」开关时，消耗 1 骨粉缩短 20% 时长（仅自动重播生效）
+                if (db.getFarmBonemealFast(uuid, fs) && db.consumeBonemeal(uuid, 1) > 0) {
+                    consumedBonemeal++;
+                    duration = (int) Math.max(1, duration * ConfigManager.BONEMEAL_FAST_FACTOR);
+                }
+                p.durationSec = duration;
+            } else {
+                p.stage = STAGE_EMPTY;
+                p.startedAt = 0;
+                p.durationSec = 0;
+            }
+            slotChanged = true;
+        }
+        if (!slotChanged) {
+            return false;
+        }
+        // 原子结算：槽位 upsert + 产量入账 单事务；失败则退还仓库种子并跳过，防重复收割
+        if (db.settleHarvest(uuid, fs, plots, wheatGain, seedGain)) {
+            return true;
+        }
+        // 落库失败：退还仓库种子 + 背包种子（真实物品，否则会凭空消失）+ 已扣骨粉；
+        // 背包放不下部分转存种子仓库，绝不让真实物品丢失
+        db.addSeed(uuid, seedsFromWarehouse);
+        if (seedsFromBackpack > 0) {
+            HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(new ItemStack(Material.WHEAT_SEEDS, seedsFromBackpack));
+            int notRefunded = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
+            if (notRefunded > 0) {
+                db.addSeed(uuid, notRefunded);
+                plugin.getLogger().warning("收割回滚背包种子部分转存仓库: uuid=" + uuid + " farmSlot=" + fs + " count=" + notRefunded);
+            }
+        }
+        if (consumedBonemeal > 0) {
+            db.addBonemeal(uuid, consumedBonemeal);
+        }
+        plugin.getLogger().warning("收割结算落库失败，已回滚该农场: uuid=" + uuid + " farmSlot=" + fs);
+        return false;
     }
 }

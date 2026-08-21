@@ -133,14 +133,21 @@ public final class DatabaseManager {
 
     // ================= player_data（总数/后备） =================
 
-    private void ensurePlayer(UUID uuid) {
+    /**
+     * 确保玩家数据行存在（INSERT OR IGNORE）。
+     *
+     * @return true 表示行已就绪；false 表示写入失败（调用方应视为本次操作失败，杜绝「免费入账/免费扣减」）
+     */
+    private boolean ensurePlayer(UUID uuid) {
         String sql = "INSERT OR IGNORE INTO player_data (uuid, created_at) VALUES (?, ?)";
         try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, uuid.toString());
             ps.setLong(2, System.currentTimeMillis() / 1000);
             ps.executeUpdate();
+            return true;
         } catch (SQLException e) {
             logError(e, "ensurePlayer");
+            return false;
         }
     }
 
@@ -174,14 +181,32 @@ public final class DatabaseManager {
         return addCount(uuid, "seed_count", delta);
     }
 
+    /**
+     * 总数增减。正数（入账/退还）直接累加；负数（扣减）为原子条件扣除——
+     * 库存不足时整次失败返回 false，杜绝「不足仍成功→免费取出/负库存」。
+     */
     private boolean addCount(UUID uuid, String column, long delta) {
         if (delta == 0) return true;
-        ensurePlayer(uuid);
-        // 下限保护：虚拟库存总数不得为负（MAX(0, x) 为 SQLite 多参标量函数）
-        String sql = "UPDATE player_data SET " + column + " = MAX(0, " + column + " + ?) WHERE uuid=?";
+        if (!ensurePlayer(uuid)) {
+            return false; // 玩家行写入失败，后续 UPDATE 必影响 0 行
+        }
+        if (delta > 0) {
+            String sql = "UPDATE player_data SET " + column + " = " + column + " + ? WHERE uuid=?";
+            try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setLong(1, delta);
+                ps.setString(2, uuid.toString());
+                return ps.executeUpdate() > 0;
+            } catch (SQLException e) {
+                logError(e, "addCount");
+                return false;
+            }
+        }
+        // 原子条件扣除：库存 < 需求时影响 0 行 → 返回 false
+        String sql = "UPDATE player_data SET " + column + " = " + column + " + ? WHERE uuid=? AND " + column + " >= ?";
         try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, delta);
             ps.setString(2, uuid.toString());
+            ps.setLong(3, -delta);
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
             logError(e, "addCount");
@@ -189,15 +214,20 @@ public final class DatabaseManager {
         }
     }
 
-    /** 从种子仓库扣除，返回实际扣除数（不足时扣 0..need）。 */
+    /**
+     * 从种子仓库扣除，返回实际扣除数。
+     *
+     * <p>扣减写库失败（DB 锁/异常）时返回 0，让调用方走「不足/失败」分支，杜绝免费种植。
+     */
     public int consumeSeed(UUID uuid, int need) {
         if (need <= 0) {
             return 0;
         }
         long seed = getSeed(uuid);
         int take = (int) Math.min(seed, need);
-        if (take > 0) {
-            addSeed(uuid, -take);
+        if (take > 0 && !addSeed(uuid, -take)) {
+            plugin.getLogger().warning("consumeSeed 扣减失败: uuid=" + uuid + " need=" + need);
+            return 0;
         }
         // 夹紧非负：即使历史数据异常为负，也不让负数流出污染调用方运算
         return Math.max(0, take);
@@ -213,15 +243,20 @@ public final class DatabaseManager {
         return addCount(uuid, "bonemeal_count", delta);
     }
 
-    /** 从骨粉库存扣除，返回实际扣除数（不足时扣 0..need）。 */
+    /**
+     * 从骨粉库存扣除，返回实际扣除数。
+     *
+     * <p>扣减写库失败（DB 锁/异常）时返回 0，让调用方走「未加速/失败」分支，杜绝免费加速。
+     */
     public int consumeBonemeal(UUID uuid, int need) {
         if (need <= 0) {
             return 0;
         }
         long bm = getBonemeal(uuid);
         int take = (int) Math.min(bm, need);
-        if (take > 0) {
-            addBonemeal(uuid, -take);
+        if (take > 0 && !addBonemeal(uuid, -take)) {
+            plugin.getLogger().warning("consumeBonemeal 扣减失败: uuid=" + uuid + " need=" + need);
+            return 0;
         }
         // 夹紧非负：即使历史数据异常为负，也不让负数流出污染调用方运算
         return Math.max(0, take);
@@ -246,7 +281,8 @@ public final class DatabaseManager {
         ensurePlayer(uuid);
         String sql = "UPDATE player_data SET bonemeal_unlocked=? WHERE uuid=?";
         try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, pages);
+            // 下限保护：至少 1 页（历史异常数据钳制，避免页数 0 导致 page=-1）
+            ps.setInt(1, Math.max(1, pages));
             ps.setString(2, uuid.toString());
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
@@ -462,17 +498,22 @@ public final class DatabaseManager {
                 "VALUES (?, ?, ?, ?, ?, ?) " +
                 "ON CONFLICT(uuid, farm_slot, plot_index) DO UPDATE SET " +
                 "stage=excluded.stage, started_at=excluded.started_at, duration_sec=excluded.duration_sec";
-        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
-            for (PlotState p : plots) {
-                ps.setString(1, uuid.toString());
-                ps.setInt(2, farmSlot);
-                ps.setInt(3, p.plotIndex);
-                ps.setInt(4, p.stage);
-                ps.setLong(5, p.startedAt);
-                ps.setInt(6, p.durationSec);
-                ps.addBatch();
+        // 单事务批量写入：任一失败整体回滚，杜绝「部分格子已写、部分未写」造成状态不完整
+        try (Connection conn = open()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (PlotState p : plots) {
+                    ps.setString(1, uuid.toString());
+                    ps.setInt(2, farmSlot);
+                    ps.setInt(3, p.plotIndex);
+                    ps.setInt(4, p.stage);
+                    ps.setLong(5, p.startedAt);
+                    ps.setInt(6, p.durationSec);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
             }
-            ps.executeBatch();
+            conn.commit();
             return true;
         } catch (SQLException e) {
             logError(e, "savePlots");
@@ -489,12 +530,16 @@ public final class DatabaseManager {
      * @return true 表示成功（产量已入账、槽位已重置）；false 表示失败（调用方应回滚已扣种子并跳过该农场）
      */
     public boolean settleHarvest(UUID uuid, int farmSlot, List<PlotState> plots, long wheatGain, long seedGain) {
-        ensurePlayer(uuid);
+        if (!ensurePlayer(uuid)) {
+            plugin.getLogger().warning("settleHarvest 玩家行不可用，已放弃该农场: uuid=" + uuid + " farmSlot=" + farmSlot);
+            return false;
+        }
         String upsert = "INSERT INTO crop_plots (uuid, farm_slot, plot_index, stage, started_at, duration_sec) " +
                 "VALUES (?, ?, ?, ?, ?, ?) " +
                 "ON CONFLICT(uuid, farm_slot, plot_index) DO UPDATE SET " +
                 "stage=excluded.stage, started_at=excluded.started_at, duration_sec=excluded.duration_sec";
-        String credit = "UPDATE player_data SET wheat_count = MAX(0, wheat_count + ?), seed_count = MAX(0, seed_count + ?) WHERE uuid=?";
+        // 入账恒为正数，直接累加即可（扣减侧由 addCount/consumeX 的原子条件扣除保证下限）
+        String credit = "UPDATE player_data SET wheat_count = wheat_count + ?, seed_count = seed_count + ? WHERE uuid=?";
         try (Connection conn = open()) {
             conn.setAutoCommit(false);
             try {
@@ -510,11 +555,16 @@ public final class DatabaseManager {
                     }
                     ps.executeBatch();
                 }
+                int affected;
                 try (PreparedStatement ps = conn.prepareStatement(credit)) {
                     ps.setLong(1, wheatGain);
                     ps.setLong(2, seedGain);
                     ps.setString(3, uuid.toString());
-                    ps.executeUpdate();
+                    affected = ps.executeUpdate();
+                }
+                // 入账影响 0 行（玩家行缺失）：回滚并判失败，防止「槽位已重置但产物未入账」
+                if (affected <= 0) {
+                    throw new SQLException("入账影响 0 行，玩家行缺失");
                 }
                 conn.commit();
                 return true;
@@ -540,6 +590,44 @@ public final class DatabaseManager {
             ps.executeUpdate();
         } catch (SQLException e) {
             logError(e, "removePlots");
+        }
+    }
+
+    /**
+     * 原子删除农田：farm_slots + crop_plots 单事务。
+     *
+     * <p>两步任一失败整体回滚，杜绝「槽位已删、种植数据残留」→ 重新创建同槽位继承旧生长数据。
+     *
+     * @return true 表示两表均删除完成；false 表示失败（已回滚，数据完整保留）
+     */
+    public boolean deleteFarm(UUID uuid, int farmSlot) {
+        String delSlot = "DELETE FROM farm_slots WHERE uuid=? AND slot_index=?";
+        String delPlots = "DELETE FROM crop_plots WHERE uuid=? AND farm_slot=?";
+        try (Connection conn = open()) {
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = conn.prepareStatement(delSlot)) {
+                    ps.setString(1, uuid.toString());
+                    ps.setInt(2, farmSlot);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(delPlots)) {
+                    ps.setString(1, uuid.toString());
+                    ps.setInt(2, farmSlot);
+                    ps.executeUpdate();
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException e) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ignored) {
+                }
+                throw e;
+            }
+        } catch (SQLException e) {
+            logError(e, "deleteFarm");
+            return false;
         }
     }
 }

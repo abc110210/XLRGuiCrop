@@ -62,7 +62,7 @@ public final class ConfigManager {
         return page <= 0 ? FARM_NEXT_SLOT_PAGE1 : FARM_NEXT_SLOT_PAGE2;
     }
 
-    // ===== 农田管理 GUI（6 行 54 格）=====
+    // ===== 农田管理 GUI（3 行 27 格）=====
     /** 补种按钮槽位（第2行第2格，小麦种子） */ // TODO yml: gui.farm-manage.replant-slot
     public static final int FARM_MANAGE_REPLANT_SLOT = 10;
     /** 农田升级按钮槽位（第2行第4格，漏斗） */ // TODO yml: gui.farm-manage.upgrade-slot
@@ -71,8 +71,8 @@ public final class ConfigManager {
     public static final int FARM_MANAGE_FAST_SLOT = 16;
     /** 删除农田槽位（第3行第5格，屏障） */ // TODO yml: gui.farm-manage.delete-slot
     public static final int FARM_MANAGE_DELETE_SLOT = 22;
-    /** 返回农田槽位（第6行第1格，箭） */ // TODO yml: gui.farm-manage.back-slot
-    public static final int FARM_MANAGE_BACK_SLOT = 45;
+    /** 返回农田槽位（第3行第1格，箭） */ // TODO yml: gui.farm-manage.back-slot
+    public static final int FARM_MANAGE_BACK_SLOT = 18;
     /** 农田最高等级 */ // TODO yml: farm.upgrade.max-level
     public static final int FARM_MAX_LEVEL = 3;
     /** 升级到 Lv.2 消耗金币 */ // TODO yml: farm.upgrade.cost-2
@@ -139,6 +139,8 @@ public final class ConfigManager {
     // ===== 调度 =====
     /** 定时器间隔（秒） */ // TODO yml: plugin.tick-interval
     public static final int TICK_INTERVAL_SEC = 60;
+    /** 删除农田聊天确认超时（秒），超时自动作废待确认态 */ // TODO yml: gui.farm-manage.delete-confirm-timeout
+    public static final int DELETE_CONFIRM_TIMEOUT_SEC = 60;
 
     // ===== 玩家提示文案 =====
     /** 创建农田成功 */ // TODO yml: msg.crop-created
@@ -188,7 +190,7 @@ public final class ConfigManager {
     /** 数据库操作失败 */ // TODO yml: msg.db-error
     public static final String MSG_DB_ERROR = "§c数据库操作失败，请稍后重试。";
     /** 骨粉加速已切换 */ // TODO yml: msg.bonemeal-fast-toggled
-    public static final String MSG_BONEMEAL_FAST_TOGGLED = "§a骨粉加速已%state%。";
+    public static final String MSG_BONEMEAL_FAST_TOGGLED = "§a骨粉加速已%state%（仅自动重播生效）。";
     /** 删除农田确认 */ // TODO yml: msg.farm-delete-confirm
     public static final String MSG_DELETE_CONFIRM = "§e你确定要删除这个农田吗？如果确定，请输入 §a删除 §e；否则请输入 §c取消 §e。";
     /** 删除农田成功 */ // TODO yml: msg.farm-delete-done

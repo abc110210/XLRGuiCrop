@@ -8,6 +8,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
@@ -36,8 +37,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *       「下一页」箭（第 1 页在第 5 格、第 2 页起在第 7 格，当前页 28 格占满才可翻页）；
  *       农田格左键进生长、右键进管理；第6行第9格「骨粉储存器」入口</li>
  *   <li>二级生长 GUI（54 格）：展示作物生长状态，空槽留空，按作物配置决定是否分阶段显示</li>
- *   <li>农田管理 GUI（6 行）：第2行第2格小麦种子「点击补种」、第2行第4格「农田升级」、
- *       第2行第8格「骨粉加速」拉杆开关、第3行第5格「删除农田」（聊天二次确认）、第6行第1格「返回农田」</li>
+ *   <li>农田管理 GUI（3 行）：第2行第2格小麦种子「点击补种」、第2行第4格「农田升级」、
+ *       第2行第8格「骨粉加速」拉杆开关、第3行第5格「删除农田」（聊天二次确认）、第3行第1格「返回农田」</li>
  *   <li>创建农田 GUI（6 行）：从第2行第2格起展示作物，点击创建</li>
  *   <li>农作物仓库 GUI（6 行，共 2 页）：第 1 页小麦/种子仓库入口，第6行第5格导航（第 1 页下一页 / 第 2 页上一页）</li>
  *   <li>骨粉储存器 GUI（多页）：默认解锁第 1 页；第 1 页第6行第5格「升级解锁」、第6行第7格「下一页」；
@@ -115,8 +116,16 @@ public final class GuiManager implements Listener {
     private final DatabaseManager db;
     private final EconomyManager economy;
     private CropManager cropManager;
-    /** 待确认删除的农田：玩家 uuid -> 农田全局槽位（聊天二次确认）。 */
-    private final Map<UUID, Integer> pendingDelete = new ConcurrentHashMap<>();
+    /** 待确认删除的农田（聊天二次确认，带超时防误删）。 */
+    private static final class PendingDelete {
+        final int farmSlot;
+        final long expireAtSec;
+        PendingDelete(int farmSlot, long expireAtSec) {
+            this.farmSlot = farmSlot;
+            this.expireAtSec = expireAtSec;
+        }
+    }
+    private final Map<UUID, PendingDelete> pendingDelete = new ConcurrentHashMap<>();
 
     public GuiManager(Shan plugin, DatabaseManager db, EconomyManager economy) {
         this.plugin = plugin;
@@ -171,7 +180,7 @@ public final class GuiManager implements Listener {
             return;
         }
         GuiHolder h = new GuiHolder(GuiType.FARM_MANAGE, uuid, 0, farmSlot, null);
-        Inventory inv = Bukkit.createInventory(h, 54, ConfigManager.GUI_FARM_MANAGE_TITLE);
+        Inventory inv = Bukkit.createInventory(h, 27, ConfigManager.GUI_FARM_MANAGE_TITLE);
         h.setInventory(inv);
         renderFarmManage(inv, h);
         player.openInventory(inv);
@@ -225,7 +234,8 @@ public final class GuiManager implements Listener {
             page = 0;
         }
         if (page >= unlocked) {
-            page = unlocked - 1;
+            // 下限钳制：历史异常数据 unlocked=0 时不落到 -1
+            page = Math.max(0, unlocked - 1);
         }
         GuiHolder h = new GuiHolder(GuiType.BONEMEAL, uuid, page, -1, null);
         Inventory inv = Bukkit.createInventory(h, 54, ConfigManager.GUI_BONEMEAL_TITLE + " §8· 第 " + (page + 1) + " 页");
@@ -283,7 +293,7 @@ public final class GuiManager implements Listener {
     }
 
     private void renderFarmManage(Inventory inv, GuiHolder h) {
-        ItemStack[] contents = new ItemStack[54];
+        ItemStack[] contents = new ItemStack[27];
         Arrays.fill(contents, frame());
         contents[ConfigManager.FARM_MANAGE_REPLANT_SLOT] = replantItem();
         contents[ConfigManager.FARM_MANAGE_UPGRADE_SLOT] = upgradeItem(db.getFarmLevel(h.getUuid(), h.getFarmSlot()));
@@ -454,32 +464,53 @@ public final class GuiManager implements Listener {
     /**
      * 删除农田二次确认：玩家在聊天栏输入「删除」确认删除，「取消」放弃。
      * 异步线程仅读取输入与待删标记，实际删库/发消息/打开 GUI 均调度回主线程执行。
+     * 超时（{@link ConfigManager#DELETE_CONFIRM_TIMEOUT_SEC}）或掉线均自动作废待确认态。
      */
     @EventHandler
     public void onDeleteConfirmChat(AsyncPlayerChatEvent e) {
         Player player = e.getPlayer();
         UUID uuid = player.getUniqueId();
-        Integer farmSlot = pendingDelete.get(uuid);
-        if (farmSlot == null) {
+        PendingDelete pd = pendingDelete.get(uuid);
+        if (pd == null) {
             return; // 无待确认的删除，正常聊天放行
         }
-        String msg = e.getMessage().trim();
-        e.setCancelled(true);
-        if ("删除".equals(msg)) {
+        // 超时保护：确认窗口过期则作废，防闲置/掉线后重上线误删
+        if (System.currentTimeMillis() / 1000 > pd.expireAtSec) {
             pendingDelete.remove(uuid);
+            return;
+        }
+        String msg = e.getMessage().trim();
+        // 仅对「删除」「取消」取消聊天事件，其余消息一律放行（确认期间玩家仍可正常聊天）
+        if ("删除".equals(msg)) {
+            e.setCancelled(true);
+            pendingDelete.remove(uuid);
+            int farmSlot = pd.farmSlot;
             Bukkit.getScheduler().runTask(plugin, () -> {
-                db.removeFarmSlot(uuid, farmSlot);
-                db.removePlots(uuid, farmSlot);
+                // 二次校验：确认时农田仍存在才执行删除（防确认期间状态漂移）
+                if (!db.hasFarmSlot(uuid, farmSlot)) {
+                    player.sendMessage(ConfigManager.MSG_DELETE_CANCELLED);
+                    return;
+                }
+                // 原子删除两表，失败必须提示，绝不假装成功
+                if (!db.deleteFarm(uuid, farmSlot)) {
+                    player.sendMessage(ConfigManager.MSG_DB_ERROR);
+                    return;
+                }
                 player.sendMessage(ConfigManager.MSG_DELETE_DONE);
                 openFarm(player, farmSlot / ConfigManager.FARM_PAGE_SLOTS);
             });
         } else if ("取消".equals(msg)) {
+            e.setCancelled(true);
             pendingDelete.remove(uuid);
             Bukkit.getScheduler().runTask(plugin, () -> player.sendMessage(ConfigManager.MSG_DELETE_CANCELLED));
-        } else {
-            // 输入了其他内容：不结束确认，提示重新输入
-            Bukkit.getScheduler().runTask(plugin, () -> player.sendMessage(ConfigManager.MSG_DELETE_HINT));
         }
+        // 其他内容：放行（正常聊天广播不受影响），确认状态保留至输入 删除/取消、超时或打开任意 GUI
+    }
+
+    /** 玩家掉线清理待确认删除态，防重上线聊天误删。 */
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent e) {
+        pendingDelete.remove(e.getPlayer().getUniqueId());
     }
 
     private void handleFarmClick(Player player, InventoryClickEvent e, GuiHolder h) {
@@ -538,9 +569,10 @@ public final class GuiManager implements Listener {
         } else if (raw == ConfigManager.FARM_MANAGE_FAST_SLOT) {
             toggleFarmFast(player, h);
         } else if (raw == ConfigManager.FARM_MANAGE_DELETE_SLOT) {
-            // 关闭 GUI 并进入聊天二次确认
+            // 关闭 GUI 并进入聊天二次确认（带超时）
             player.closeInventory();
-            pendingDelete.put(h.getUuid(), h.getFarmSlot());
+            pendingDelete.put(h.getUuid(), new PendingDelete(h.getFarmSlot(),
+                    System.currentTimeMillis() / 1000 + ConfigManager.DELETE_CONFIRM_TIMEOUT_SEC));
             player.sendMessage(ConfigManager.MSG_DELETE_CONFIRM);
         } else if (raw == ConfigManager.FARM_MANAGE_BACK_SLOT) {
             scheduleOpen(() -> openFarm(player, h.getFarmSlot() / ConfigManager.FARM_PAGE_SLOTS));
@@ -593,8 +625,12 @@ public final class GuiManager implements Listener {
             return;
         }
         if (!economy.withdraw(player, cost)) {
-            db.setFarmLevel(uuid, h.getFarmSlot(), level);
-            player.sendMessage(ConfigManager.MSG_FARM_UPGRADE_NO_MONEY.replace("%cost%", costText));
+            // 扣款失败回滚等级；回滚也失败时必须报 DB 错误（否则=免费升级），不得静默
+            if (!db.setFarmLevel(uuid, h.getFarmSlot(), level)) {
+                player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            } else {
+                player.sendMessage(ConfigManager.MSG_FARM_UPGRADE_NO_MONEY.replace("%cost%", costText));
+            }
             return;
         }
         player.sendMessage(ConfigManager.MSG_FARM_UPGRADED
@@ -739,14 +775,19 @@ public final class GuiManager implements Listener {
         HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(give);
         int accepted = qty - leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
         if (accepted <= 0) {
-            // 背包全满：退回虚拟库存
-            db.addBonemeal(h.getUuid(), qty);
+            // 背包全满：退回虚拟库存（退回失败必须记录，否则骨粉凭空消失）
+            if (!db.addBonemeal(h.getUuid(), qty)) {
+                plugin.getLogger().warning("骨粉退回库存失败: uuid=" + h.getUuid() + " qty=" + qty);
+            }
             player.sendMessage(ConfigManager.MSG_INV_FULL);
             return;
         }
         if (accepted < qty) {
             // 装不下的部分退回虚拟库存
-            db.addBonemeal(h.getUuid(), qty - accepted);
+            int back = qty - accepted;
+            if (!db.addBonemeal(h.getUuid(), back)) {
+                plugin.getLogger().warning("骨粉部分退回库存失败: uuid=" + h.getUuid() + " qty=" + back);
+            }
         }
         if (accepted >= qty) {
             e.setCurrentItem(null);
@@ -776,8 +817,12 @@ public final class GuiManager implements Listener {
             return;
         }
         if (!economy.withdraw(player, cost)) {
-            db.setUnlockedPages(uuid, unlocked);
-            player.sendMessage(ConfigManager.MSG_UNLOCK_FAIL_MONEY.replace("%cost%", costText));
+            // 扣款失败回滚解锁页数；回滚也失败时必须报 DB 错误（否则=免费解锁），不得静默
+            if (!db.setUnlockedPages(uuid, unlocked)) {
+                player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            } else {
+                player.sendMessage(ConfigManager.MSG_UNLOCK_FAIL_MONEY.replace("%cost%", costText));
+            }
             return;
         }
         player.sendMessage(ConfigManager.MSG_UNLOCK_SUCCESS.replace("%cost%", costText));
@@ -797,21 +842,20 @@ public final class GuiManager implements Listener {
         HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(cur);
         int accepted = qty - leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
         if (accepted <= 0) {
-            // 背包全满：退回虚拟库存
-            if (isWheat) {
-                db.addWheat(h.getUuid(), qty);
-            } else {
-                db.addSeed(h.getUuid(), qty);
+            // 背包全满：退回虚拟库存（退回失败必须记录，否则物品凭空消失）
+            boolean ok = isWheat ? db.addWheat(h.getUuid(), qty) : db.addSeed(h.getUuid(), qty);
+            if (!ok) {
+                plugin.getLogger().warning("取物退回库存失败: uuid=" + h.getUuid() + " qty=" + qty);
             }
             player.sendMessage(ConfigManager.MSG_INV_FULL);
             return;
         }
         if (accepted < qty) {
             // 装不下的部分退回虚拟库存
-            if (isWheat) {
-                db.addWheat(h.getUuid(), qty - accepted);
-            } else {
-                db.addSeed(h.getUuid(), qty - accepted);
+            int back = qty - accepted;
+            boolean ok = isWheat ? db.addWheat(h.getUuid(), back) : db.addSeed(h.getUuid(), back);
+            if (!ok) {
+                plugin.getLogger().warning("取物部分退回库存失败: uuid=" + h.getUuid() + " qty=" + back);
             }
         }
         if (accepted >= qty) {
@@ -1014,13 +1058,16 @@ public final class GuiManager implements Listener {
         return item;
     }
 
-    /** 骨粉加速开关（拉杆），Lore 随状态显示开/关。 */
+    /** 骨粉加速开关（拉杆），Lore 随状态显示开/关，并注明仅自动重播生效。 */
     private ItemStack bonemealFastItem(boolean on) {
         ItemStack item = new ItemStack(Material.LEVER);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName("§a骨粉加速");
-            meta.setLore(List.of(on ? "§7当前状态: §a开" : "§7当前状态: §c关"));
+            meta.setLore(List.of(
+                    on ? "§7当前状态: §a开" : "§7当前状态: §c关",
+                    "§7开启后自动重播消耗 1 骨粉缩短 20% 成熟时长",
+                    "§7仅自动重播生效，手动补种不受影响"));
             item.setItemMeta(meta);
         }
         return item;
