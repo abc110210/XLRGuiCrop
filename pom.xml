@@ -24,6 +24,11 @@
             <id>spigotmc-repo</id>
             <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
         </repository>
+        <!-- VaultAPI（jitpack） -->
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -39,6 +44,13 @@
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.46.1.3</version>
+        </dependency>
+        <!-- Vault 经济 API（构建期 provided，不进 jar；运行时需服务端安装 Vault） -->
+        <dependency>
+            <groupId>com.github.MilkBowl</groupId>
+            <artifactId>VaultAPI</artifactId>
+            <version>1.7</version>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 
@@ -93,13 +105,11 @@
                                     </excludes>
                                 </filter>
                                 <!-- 瘦身：sqlite-jdbc 自带全平台原生库（org/sqlite/native/），
-                                     仅保留 Linux x86_64 + Windows x86_64，剔除其余平台（jar 13M → ~6M）。
-                                     若服务端为其他平台（如 macOS / Linux aarch64），
-                                     调整这里保留对应目录即可。 -->
+                                     仅保留三平台：Linux x86_64（amd64）、Windows x86_64、Linux aarch64（arm64）。
+                                     若需增减平台，调整 exclude 列表即可。 -->
                                 <filter>
                                     <artifact>org.xerial:sqlite-jdbc</artifact>
                                     <excludes>
-                                        <exclude>org/sqlite/native/Linux/aarch64/**</exclude>
                                         <exclude>org/sqlite/native/Linux/arm/**</exclude>
                                         <exclude>org/sqlite/native/Linux/armv5/**</exclude>
                                         <exclude>org/sqlite/native/Linux/armv6/**</exclude>

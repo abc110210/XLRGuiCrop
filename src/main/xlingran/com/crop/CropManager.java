@@ -75,17 +75,30 @@ public final class CropManager {
 
     // ================= 种子消耗 =================
 
-    /** 消耗种子：优先种子仓库，不足扣玩家背包，返回实际消耗数。 */
-    public int tryConsumeSeeds(Player player, UUID uuid, int need) {
+    /**
+     * 消耗种子，返回实际消耗数。
+     *
+     * @param warehouseFirst true = 先扣种子仓库、不足扣背包（补种/自动重播）；
+     *                       false = 先扣背包、不足扣种子仓库（创建农田）
+     */
+    public int tryConsumeSeeds(Player player, UUID uuid, int need, boolean warehouseFirst) {
         if (need <= 0) {
             return 0;
         }
-        int fromWarehouse = db.consumeSeed(uuid, need);
-        int remain = need - fromWarehouse;
-        if (remain > 0 && player != null) {
-            return fromWarehouse + consumeBackpackSeeds(player, remain);
+        if (warehouseFirst) {
+            int fromWarehouse = db.consumeSeed(uuid, need);
+            int remain = need - fromWarehouse;
+            if (remain > 0 && player != null) {
+                return fromWarehouse + consumeBackpackSeeds(player, remain);
+            }
+            return fromWarehouse;
         }
-        return fromWarehouse;
+        int fromBackpack = player != null ? consumeBackpackSeeds(player, need) : 0;
+        int remain = need - fromBackpack;
+        if (remain > 0) {
+            return fromBackpack + db.consumeSeed(uuid, remain);
+        }
+        return fromBackpack;
     }
 
     private int consumeBackpackSeeds(Player player, int need) {
@@ -93,6 +106,78 @@ public final class CropManager {
                 .removeItem(new ItemStack(Material.WHEAT_SEEDS, need));
         int notTaken = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
         return need - notTaken;
+    }
+
+    /** 统计玩家背包中小麦种子数量。 */
+    public int countBackpackSeeds(Player player) {
+        if (player == null) {
+            return 0;
+        }
+        int count = 0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() == Material.WHEAT_SEEDS) {
+                count += item.getAmount();
+            }
+        }
+        return count;
+    }
+
+    // ================= 创建农田 =================
+
+    /**
+     * 创建农田并种植：消耗全部可用种子（背包优先→种子仓库），有几颗种几格（最多 54 格）。
+     *
+     * @return 全局槽位索引；-1 表示无种子、创建失败
+     */
+    public int createFarm(Player player, CropType ct) {
+        UUID uuid = player.getUniqueId();
+        long available = (long) countBackpackSeeds(player) + db.getSeed(uuid);
+        if (available <= 0) {
+            return -1;
+        }
+        int globalIndex = db.findFirstFreeFarmSlot(uuid);
+        db.createFarmSlot(uuid, globalIndex, ct.getId());
+        int plant = (int) Math.min(available, PLOT_COUNT);
+        int consumed = tryConsumeSeeds(player, uuid, plant, false);
+        plantFirstSlots(uuid, globalIndex, consumed);
+        return globalIndex;
+    }
+
+    /** 把前 count 个空槽设为种植中（创建时使用）。 */
+    public void plantFirstSlots(UUID uuid, int farmSlot, int count) {
+        if (count <= 0) {
+            return;
+        }
+        long now = System.currentTimeMillis() / 1000;
+        CropType ct = CropRegistry.get(db.getFarmSlotCropType(uuid, farmSlot));
+        if (ct == null) {
+            return;
+        }
+        List<PlotState> plots = loadOrCreatePlots(uuid, farmSlot);
+        int planted = 0;
+        for (PlotState p : plots) {
+            if (planted >= count) {
+                break;
+            }
+            if (p.stage == STAGE_EMPTY) {
+                p.stage = 0;
+                p.startedAt = now;
+                p.durationSec = ct.randomDurationSec();
+                planted++;
+            }
+        }
+        db.savePlots(uuid, farmSlot, plots);
+    }
+
+    /** 统计某农田当前空槽数（用于计算已种植数）。 */
+    public int countEmptyPlots(UUID uuid, int farmSlot) {
+        int empty = 0;
+        for (PlotState p : db.loadPlots(uuid, farmSlot)) {
+            if (p.stage == STAGE_EMPTY) {
+                empty++;
+            }
+        }
+        return empty;
     }
 
     // ================= 补种 =================
@@ -140,7 +225,7 @@ public final class CropManager {
         if (empty == 0) {
             return 0;
         }
-        int consumed = tryConsumeSeeds(player, uuid, empty);
+        int consumed = tryConsumeSeeds(player, uuid, empty, true);
         if (consumed <= 0) {
             return -1;
         }
@@ -181,15 +266,22 @@ public final class CropManager {
                 boolean slotChanged = false;
                 for (PlotState p : plots) {
                     if (calcStage(p, now) >= 7) {
-                        // 收割入总数（初始产量 1 小麦 + 2 种子，预留升级系统）
-                        db.addWheat(uuid, ct.getYieldWheat());
+                        // 收割入总数（基础产量 1 小麦 + 2 种子；农田等级加成：Lv2 +1 小麦、Lv3 +2 小麦）
+                        int level = db.getFarmLevel(uuid, fs);
+                        int wheatYield = ct.getYieldWheat() + Math.max(0, level - 1);
+                        db.addWheat(uuid, wheatYield);
                         db.addSeed(uuid, ct.getYieldSeed());
                         // 自动补种重播：从种子仓库→背包扣 1 粒，不足则留空
-                        int got = tryConsumeSeeds(player, uuid, ConfigManager.REPLANT_COST_SEED);
+                        int got = tryConsumeSeeds(player, uuid, ConfigManager.REPLANT_COST_SEED, true);
                         if (got >= ConfigManager.REPLANT_COST_SEED) {
                             p.stage = 0;
                             p.startedAt = now;
-                            p.durationSec = ct.randomDurationSec();
+                            int duration = ct.randomDurationSec();
+                            // 骨粉加速：消耗 1 骨粉，成熟时长缩短 20%
+                            if (db.consumeBonemeal(uuid, 1) > 0) {
+                                duration = (int) Math.max(1, duration * ConfigManager.BONEMEAL_FAST_FACTOR);
+                            }
+                            p.durationSec = duration;
                         } else {
                             p.stage = STAGE_EMPTY;
                             p.startedAt = 0;

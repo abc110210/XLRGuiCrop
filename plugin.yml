@@ -5,6 +5,7 @@ main: xlingran.com.Shan
 api-version: "26.2"
 author: xlingran
 description: Multi-Functional Virtual Crops Plugin
+softdepend: [Vault]
 
 # 命令
 commands:
@@ -24,3 +25,6 @@ permissions:
   xlr.crop.create:
     description: 创建农田
     default: true
+  xlr.admin:
+    description: 骨粉页数解锁等管理指令
+    default: op

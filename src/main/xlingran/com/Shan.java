@@ -5,6 +5,7 @@ import xlingran.com.command.CommandManager;
 import xlingran.com.crop.CropManager;
 import xlingran.com.crop.CropRegistry;
 import xlingran.com.db.DatabaseManager;
+import xlingran.com.economy.EconomyManager;
 import xlingran.com.gui.GuiManager;
 
 /**
@@ -28,22 +29,30 @@ public final class Shan extends JavaPlugin {
         // 2. 数据库（player_data / farm_slots / crop_plots，WAL）
         db = new DatabaseManager(this, getDataFolder());
 
-        // 3. GUI 监听（四类 GUI + 点击分发 + 防复制）
-        gui = new GuiManager(this, db);
+        // 3. 经济（Vault，可选）
+        EconomyManager economy = new EconomyManager();
+        if (economy.isEnabled()) {
+            getLogger().info("Vault economy detected.");
+        } else {
+            getLogger().warning("Vault economy not found, bone-meal page unlock will be disabled.");
+        }
+
+        // 4. GUI 监听（各 GUI + 点击分发 + 防复制）
+        gui = new GuiManager(this, db, economy);
         getServer().getPluginManager().registerEvents(gui, this);
 
-        // 4. 生长管理（先建，再注入 gui 以便刷新）
+        // 5. 生长管理（先建，再注入 gui 以便刷新）
         cropManager = new CropManager(this, db, gui);
         gui.setCropManager(cropManager);
 
-        // 5. 指令
+        // 6. 指令
         CommandManager commandManager = new CommandManager(db, gui, cropManager);
         if (getCommand("xlr") != null) {
             getCommand("xlr").setExecutor(commandManager);
             getCommand("xlr").setTabCompleter(commandManager);
         }
 
-        // 6. 60s 定时结算
+        // 7. 60s 定时结算
         cropManager.start();
 
         getLogger().info("XLRGuiCrop enabled (v" + getDescription().getVersion() + ").");

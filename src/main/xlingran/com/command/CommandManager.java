@@ -1,5 +1,7 @@
 package xlingran.com.command;
 
+import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -72,7 +74,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 player.sendMessage(ConfigManager.MSG_NO_PERM);
                 return;
             }
-            gui.openCropMenu(player);
+            gui.openCropMenu(player, 0);
             return;
         }
         switch (args[1].toLowerCase()) {
@@ -82,7 +84,8 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                     return;
                 }
                 if (args.length < 3) {
-                    player.sendMessage("§c用法: /xlr crop create <作物名称>");
+                    // 无参数：打开创建农田 GUI
+                    gui.openCreateCrop(player);
                     return;
                 }
                 createCrop(player, uuid, args[2]);
@@ -99,9 +102,34 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                     player.sendMessage(ConfigManager.MSG_NO_PERM);
                     return;
                 }
-                gui.openCropMenu(player);
+                gui.openCropMenu(player, 0);
             }
-            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui]");
+            case "bone" -> {
+                if (!player.hasPermission("xlr.crop")) {
+                    player.sendMessage(ConfigManager.MSG_NO_PERM);
+                    return;
+                }
+                gui.openBonemeal(player, 0);
+            }
+            case "menu" -> {
+                if (!player.hasPermission("xlr.crop")) {
+                    player.sendMessage(ConfigManager.MSG_NO_PERM);
+                    return;
+                }
+                gui.openMenu(player);
+            }
+            case "gufen" -> {
+                if (!player.hasPermission("xlr.admin")) {
+                    player.sendMessage(ConfigManager.MSG_NO_PERM);
+                    return;
+                }
+                if (args.length < 5 || !"update".equalsIgnoreCase(args[2])) {
+                    player.sendMessage("§c用法: /xlr crop gufen update <玩家ID> <解锁页数>");
+                    return;
+                }
+                gufenUpdate(player, args[3], args[4]);
+            }
+            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|gufen]");
         }
     }
 
@@ -111,20 +139,55 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             player.sendMessage("§c未知作物: " + typeId + " §7（当前支持: " + String.join("、", CropRegistry.all().keySet()) + "）");
             return;
         }
-        // 创建农田消耗 1 粒种子（优先种子仓库，不足扣背包）
-        int cost = ConfigManager.CREATE_COST_SEED;
-        int consumed = cropManager.tryConsumeSeeds(player, uuid, cost);
-        if (consumed < cost) {
+        // 创建农田：扣种子（背包优先→仓库），有几颗种几格
+        int globalIndex = cropManager.createFarm(player, ct);
+        if (globalIndex < 0) {
             player.sendMessage(ConfigManager.MSG_NO_SEED);
             return;
         }
-        int globalIndex = db.findFirstFreeFarmSlot(uuid);
-        db.createFarmSlot(uuid, globalIndex, ct.getId());
+        int planted = CropManager.PLOT_COUNT - cropManager.countEmptyPlots(uuid, globalIndex);
         int page = globalIndex / ConfigManager.FARM_PAGE_SLOTS + 1;
         int slot = globalIndex % ConfigManager.FARM_PAGE_SLOTS + 1;
         player.sendMessage(ConfigManager.MSG_CROP_CREATED
                 .replace("%page%", String.valueOf(page))
-                .replace("%slot%", String.valueOf(slot)));
+                .replace("%slot%", String.valueOf(slot))
+                .replace("%replant%", String.valueOf(planted)));
+        // 创建后跳转到对应农田页查看
+        gui.openFarm(player, globalIndex / ConfigManager.FARM_PAGE_SLOTS);
+    }
+
+    /** 骨粉页数叠加解锁：/xlr crop gufen update <玩家ID> <页数>。 */
+    private void gufenUpdate(Player sender, String targetName, String countStr) {
+        int delta;
+        try {
+            delta = Integer.parseInt(countStr);
+        } catch (NumberFormatException e) {
+            sender.sendMessage("§c解锁页数必须为数字。");
+            return;
+        }
+        if (delta <= 0) {
+            sender.sendMessage("§c解锁页数必须大于 0。");
+            return;
+        }
+        Player online = Bukkit.getPlayerExact(targetName);
+        UUID targetUuid;
+        if (online != null) {
+            targetUuid = online.getUniqueId();
+        } else {
+            OfflinePlayer op = Bukkit.getOfflinePlayerIfCached(targetName);
+            if (op == null) {
+                sender.sendMessage(ConfigManager.MSG_PLAYER_NOT_FOUND.replace("%player%", targetName));
+                return;
+            }
+            targetUuid = op.getUniqueId();
+        }
+        int current = db.getUnlockedPages(targetUuid);
+        int total = Math.max(1, current) + delta;
+        db.setUnlockedPages(targetUuid, total);
+        sender.sendMessage(ConfigManager.MSG_GFUEN_UPDATE_DONE
+                .replace("%player%", targetName)
+                .replace("%count%", String.valueOf(delta))
+                .replace("%total%", String.valueOf(total)));
     }
 
     @Override
@@ -134,11 +197,14 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         }
         if ("crop".equalsIgnoreCase(args[0])) {
             if (args.length == 2) {
-                return filter(List.of("create", "farm", "gui"), args[1]);
+                return filter(List.of("create", "farm", "gui", "bone", "menu", "gufen"), args[1]);
             }
             if (args.length == 3 && "create".equalsIgnoreCase(args[1])) {
                 // 创建指令只接受英文作物 id
                 return filter(new ArrayList<>(CropRegistry.all().keySet()), args[2]);
+            }
+            if (args.length == 3 && "gufen".equalsIgnoreCase(args[1])) {
+                return filter(List.of("update"), args[2]);
             }
         }
         return Collections.emptyList();

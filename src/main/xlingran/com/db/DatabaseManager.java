@@ -63,11 +63,14 @@ public final class DatabaseManager {
                     "uuid TEXT PRIMARY KEY," +
                     "wheat_count INTEGER DEFAULT 0," +
                     "seed_count INTEGER DEFAULT 0," +
+                    "bonemeal_count INTEGER DEFAULT 0," +
+                    "bonemeal_unlocked INTEGER DEFAULT 1," +
                     "created_at INTEGER DEFAULT 0)");
             st.execute("CREATE TABLE IF NOT EXISTS farm_slots (" +
                     "uuid TEXT NOT NULL," +
                     "crop_type TEXT NOT NULL," +
                     "slot_index INTEGER NOT NULL," +
+                    "level INTEGER DEFAULT 1," +
                     "PRIMARY KEY (uuid, slot_index))");
             st.execute("CREATE TABLE IF NOT EXISTS crop_plots (" +
                     "uuid TEXT NOT NULL," +
@@ -77,6 +80,38 @@ public final class DatabaseManager {
                     "started_at INTEGER DEFAULT 0," +
                     "duration_sec INTEGER DEFAULT 0," +
                     "PRIMARY KEY (uuid, farm_slot, plot_index))");
+            // 旧库迁移：补齐骨粉列
+            try (ResultSet rs = st.executeQuery("PRAGMA table_info(player_data)")) {
+                boolean hasBonemeal = false;
+                boolean hasUnlocked = false;
+                while (rs.next()) {
+                    String col = rs.getString("name");
+                    if ("bonemeal_count".equals(col)) {
+                        hasBonemeal = true;
+                    }
+                    if ("bonemeal_unlocked".equals(col)) {
+                        hasUnlocked = true;
+                    }
+                }
+                if (!hasBonemeal) {
+                    st.execute("ALTER TABLE player_data ADD COLUMN bonemeal_count INTEGER DEFAULT 0");
+                }
+                if (!hasUnlocked) {
+                    st.execute("ALTER TABLE player_data ADD COLUMN bonemeal_unlocked INTEGER DEFAULT 1");
+                }
+            }
+            // 旧库迁移：farm_slots 补齐农田等级列
+            try (ResultSet rs = st.executeQuery("PRAGMA table_info(farm_slots)")) {
+                boolean hasLevel = false;
+                while (rs.next()) {
+                    if ("level".equals(rs.getString("name"))) {
+                        hasLevel = true;
+                    }
+                }
+                if (!hasLevel) {
+                    st.execute("ALTER TABLE farm_slots ADD COLUMN level INTEGER DEFAULT 1");
+                }
+            }
         } catch (SQLException e) {
             // 抛异常让 onEnable 自然失败，由 Bukkit 禁用插件；
             // 切勿在此调用 disablePlugin（enable 过程中禁用会把 jar 提前关闭，导致后续 zip file closed）
@@ -155,6 +190,56 @@ public final class DatabaseManager {
             addSeed(uuid, -take);
         }
         return take;
+    }
+
+    // ================= 骨粉（bonemeal） =================
+
+    public long getBonemeal(UUID uuid) {
+        return getCount(uuid, "bonemeal_count");
+    }
+
+    public void addBonemeal(UUID uuid, int delta) {
+        addCount(uuid, "bonemeal_count", delta);
+    }
+
+    /** 从骨粉库存扣除，返回实际扣除数（不足时扣 0..need）。 */
+    public int consumeBonemeal(UUID uuid, int need) {
+        if (need <= 0) {
+            return 0;
+        }
+        long bm = getBonemeal(uuid);
+        int take = (int) Math.min(bm, need);
+        if (take > 0) {
+            addBonemeal(uuid, -take);
+        }
+        return take;
+    }
+
+    /** 已解锁页数（默认 1，即第 1 页）。 */
+    public int getUnlockedPages(UUID uuid) {
+        ensurePlayer(uuid);
+        String sql = "SELECT bonemeal_unlocked FROM player_data WHERE uuid=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt("bonemeal_unlocked") : 1;
+            }
+        } catch (SQLException e) {
+            logError(e, "getUnlockedPages");
+            return 1;
+        }
+    }
+
+    public void setUnlockedPages(UUID uuid, int pages) {
+        ensurePlayer(uuid);
+        String sql = "UPDATE player_data SET bonemeal_unlocked=? WHERE uuid=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, pages);
+            ps.setString(2, uuid.toString());
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            logError(e, "setUnlockedPages");
+        }
     }
 
     // ================= farm_slots（农田分页） =================
@@ -253,6 +338,33 @@ public final class DatabaseManager {
             }
         }
         return true;
+    }
+
+    /** 农田升级等级（默认 1）。 */
+    public int getFarmLevel(UUID uuid, int globalIndex) {
+        String sql = "SELECT level FROM farm_slots WHERE uuid=? AND slot_index=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setInt(2, globalIndex);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt("level") : 1;
+            }
+        } catch (SQLException e) {
+            logError(e, "getFarmLevel");
+            return 1;
+        }
+    }
+
+    public void setFarmLevel(UUID uuid, int globalIndex, int level) {
+        String sql = "UPDATE farm_slots SET level=? WHERE uuid=? AND slot_index=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, level);
+            ps.setString(2, uuid.toString());
+            ps.setInt(3, globalIndex);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            logError(e, "setFarmLevel");
+        }
     }
 
     // ================= crop_plots（生长状态） =================

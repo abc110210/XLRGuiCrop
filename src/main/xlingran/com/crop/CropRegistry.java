@@ -12,6 +12,7 @@ import java.util.Map;
  *
  * <p>新增作物只需在 {@link #registerDefaults()} 中追加一条注册项即可；
  * 参数由 ConfigManager 常量提供（均为 TODO yml 迁移点）。
+ * 小麦：按阶段变化显示；未来胡萝卜类作物可设 showStageChange=false 始终显示成品图标。
  */
 public final class CropRegistry {
 
@@ -30,7 +31,8 @@ public final class CropRegistry {
                 ConfigManager.GROW_MAX_HOUR * 3600,
                 ConfigManager.YIELD_WHEAT,
                 ConfigManager.YIELD_SEED,
-                ConfigManager.CONSUME_SEED));
+                ConfigManager.CONSUME_SEED,
+                true));
     }
 
     public static void register(CropType type) {
