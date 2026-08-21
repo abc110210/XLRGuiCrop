@@ -15,6 +15,8 @@ public final class ConfigManager {
     // ===== GUI 标题 =====
     /** 农田 GUI 标题 */ // TODO yml: gui.farm.title
     public static final String GUI_FARM_TITLE = "农田";
+    /** 二级生长 GUI 标题（回退值，实际用作物名） */ // TODO yml: gui.farm.growth-title
+    public static final String GUI_GROWTH_TITLE = "小麦农田";
     /** 农田管理 GUI 标题 */ // TODO yml: gui.farm-manage.title
     public static final String GUI_FARM_MANAGE_TITLE = "农田管理";
     /** 农作物仓库 GUI 标题 */ // TODO yml: gui.warehouse.title
