@@ -1,6 +1,7 @@
 package xlingran.com;
 
 import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import xlingran.com.command.CommandManager;
@@ -135,8 +136,9 @@ public final class Shan extends JavaPlugin {
         if (online != null) {
             return economy.getBalance(online);
         }
-        if (economy.hasOfflineSupport()) {
-            return economy.getBalance(Bukkit.getOfflinePlayer(uuid));
+        OfflinePlayer offline = Bukkit.getOfflinePlayer(uuid);
+        if (economy.hasAccount(offline)) {
+            return economy.getBalance(offline);
         }
         return -1;
     }

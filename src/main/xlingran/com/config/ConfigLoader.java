@@ -27,7 +27,7 @@ public final class ConfigLoader {
         YamlConfiguration cfg = YamlConfiguration.loadConfiguration(extract(plugin, folder, "config.yml"));
         YamlConfiguration gui = YamlConfiguration.loadConfiguration(extract(plugin, folder, "gui.yml"));
         ConfigManager.apply(cfg, gui);
-        CropRegistry.registerAll(parseCrops(cfg, gui));
+        CropRegistry.registerAll(parseCrops(plugin, cfg, gui));
         plugin.getLogger().info("Loaded config.yml + gui.yml, crops: " + CropRegistry.all().size());
     }
 
@@ -46,7 +46,7 @@ public final class ConfigLoader {
      * <p>产量（yield-product / yield-seed）由 gui.yml 的 FarmUpdate.&lt;id&gt;.LV1.Drop / SeedDrop 决定，
      * 该作物未在 FarmUpdate 配置时回退默认 1；缺省字段用安全默认值。
      */
-    private static List<CropType> parseCrops(YamlConfiguration cfg, YamlConfiguration gui) {
+    private static List<CropType> parseCrops(Shan plugin, YamlConfiguration cfg, YamlConfiguration gui) {
         List<CropType> list = new ArrayList<>();
         ConfigurationSection sec = cfg.getConfigurationSection("crops");
         if (sec == null) {

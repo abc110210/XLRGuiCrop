@@ -64,9 +64,9 @@ public final class EconomyManager {
         return e == null ? 0 : e.getBalance(player);
     }
 
-    /** 是否支持离线余额查询（启动恢复经济操作时用）。 */
-    public boolean hasOfflineSupport() {
+    /** 离线账户是否可查询（Vault 标准方法 hasAccount，启动恢复经济操作时用）。 */
+    public boolean hasAccount(OfflinePlayer player) {
         Economy e = current();
-        return e != null && e.hasOfflineSupport();
+        return e != null && e.hasAccount(player);
     }
 }
