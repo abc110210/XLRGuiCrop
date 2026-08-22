@@ -157,14 +157,14 @@ Farmmanage:
     # 删除农田
     DeleFram:
         material: BARRIER
-        slot: 22
+        slot: 14
         name: "&c删除农田"
         Lore:
             - "点击删除该农田"
     # 返回
     Prvepage:
         material: ARROW
-        slot: 18
+        slot: 22
         name: "&a上一页"
         Lore:
             - ""
@@ -258,19 +258,19 @@ FarmUpdate:
         LV1:
             Drop: 1
             SeedDrop: 1
-            Lore: "LV1 产量: 1 甜瓜 + 1 种子"
+            Lore: "LV1 产量: 1 西瓜 + 1 种子"
         LV2:
             Drop: 2
             SeedDrop: 2
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 甜瓜 + 2种子"
+            Lore: "LV2 产量: 2 西瓜 + 2种子"
         LV3:
             Drop: 3
             SeedDrop: 2
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 甜瓜 + 2种子"
+            Lore: "LV3 产量: 3 西瓜 + 2种子"
     pumpkin:
         LV1:
             Drop: 1

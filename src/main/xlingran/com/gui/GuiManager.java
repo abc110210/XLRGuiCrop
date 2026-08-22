@@ -72,13 +72,13 @@ public final class GuiManager implements Listener {
 
         public String getItemType() { return itemType; }
 
-        /** 展示材质：SEED 用作物种子材料，PRODUCT 用产物材料。 */
+        /** 展示材质：SEED 用作物种子材料，PRODUCT 用收割入仓材质（如西瓜=西瓜片 MELON_SLICE）。 */
         public Material getMaterial() {
             CropType ct = CropRegistry.get(cropId);
             if (ct == null) {
                 return "SEED".equals(itemType) ? Material.WHEAT_SEEDS : Material.WHEAT;
             }
-            return "SEED".equals(itemType) ? ct.getSeedMaterial() : ct.getProductMaterial();
+            return "SEED".equals(itemType) ? ct.getSeedMaterial() : ct.getHarvestMaterial();
         }
 
         /** 仓库标题（如「小麦仓库」/「小麦种子仓库」）。 */
@@ -258,7 +258,7 @@ public final class GuiManager implements Listener {
         player.openInventory(inv);
     }
 
-    /** 打开农作物仓库 GUI（每页 28 格，每作物 2 入口 = 种子+产物；需 xlr.crop.gui）。 */
+    /** 打开农作物仓库 GUI（每页 28 格，入口见 cropMenuEntries；需 xlr.crop.gui）。 */
     public void openCropMenu(Player player, int page) {
         if (!player.hasPermission("xlr.crop.gui")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
@@ -268,8 +268,8 @@ public final class GuiManager implements Listener {
         if (page < 0) {
             page = 0;
         }
-        // 页数由作物数决定（每作物 2 入口，每页 28 格）
-        int entries = CropRegistry.all().size() * 2;
+        // 页数由入口数决定（每页 28 格）
+        int entries = cropMenuEntries().size();
         int maxPage = Math.max(0, (entries - 1) / ConfigManager.WAREHOUSE_PAGE_SLOTS);
         if (page > maxPage) {
             page = maxPage;
@@ -406,16 +406,17 @@ public final class GuiManager implements Listener {
     private void renderCropMenu(Inventory inv, GuiHolder h) {
         ItemStack[] contents = new ItemStack[54];
         Arrays.fill(contents, frame());
-        // 按作物动态生成入口：每作物 2 格（种子仓库在前、产物仓库在后），从内部 28 格顺序填充；
-        // 条目配置共用 gui.yml CropStorage 段，材质/名称/Lore 支持 %icon%/%name%/%Farmitem% 变量（作物过多不逐一写死）
-        List<CropType> crops = new ArrayList<>(CropRegistry.all().values());
-        int entries = crops.size() * 2;
+        // 按作物动态生成入口：有独立种子作物 2 格（种子仓库在前、产物仓库在后），
+        // 无种子作物（土豆/胡萝卜/竹子等，用本体当种子）只 1 格产物仓库，避免出现两个一模一样的东西；
+        // 条目配置共用 gui.yml CropStorage 段，材质/名称/Lore 支持 %icon%/%name%/%Farmitem% 变量
+        List<WarehouseResource> entries = cropMenuEntries();
         int start = h.getPage() * ConfigManager.WAREHOUSE_PAGE_SLOTS;
         int local = 0;
-        for (int i = start; i < Math.min(entries, start + ConfigManager.WAREHOUSE_PAGE_SLOTS); i++) {
-            CropType ct = crops.get(i / 2);
-            boolean seed = i % 2 == 0;
-            Material mat = seed ? ct.getSeedMaterial() : ct.getProductMaterial();
+        for (int i = start; i < Math.min(entries.size(), start + ConfigManager.WAREHOUSE_PAGE_SLOTS); i++) {
+            WarehouseResource res = entries.get(i);
+            CropType ct = CropRegistry.get(res.getCropId());
+            boolean seed = "SEED".equals(res.getItemType());
+            Material mat = res.getMaterial();
             String entryName = "§6" + ct.getName() + (seed ? "种子仓库" : "仓库");
             contents[INNER_SLOTS[local++]] = guiItem("CropStorage",
                     mat,
@@ -426,7 +427,7 @@ public final class GuiManager implements Listener {
                     "%name%", ct.getName());
         }
         // 导航同格：有下一页显示下一页，否则显示上一页（末页无按钮）
-        boolean hasMore = entries > (h.getPage() + 1) * ConfigManager.WAREHOUSE_PAGE_SLOTS;
+        boolean hasMore = entries.size() > (h.getPage() + 1) * ConfigManager.WAREHOUSE_PAGE_SLOTS;
         if (h.getPage() > 0 || hasMore) {
             contents[ConfigManager.CROP_MENU_NEXT_SLOT] = hasMore
                     ? guiItem("Crop.Nextpage", Material.ARROW, "§a下一页", List.of())
@@ -783,7 +784,7 @@ public final class GuiManager implements Listener {
         int raw = e.getSlot();
         // 导航同格：有下一页则下一页，否则上一页
         if (raw == ConfigManager.CROP_MENU_NEXT_SLOT) {
-            int entries = CropRegistry.all().size() * 2;
+            int entries = cropMenuEntries().size();
             boolean hasMore = entries > (h.getPage() + 1) * ConfigManager.WAREHOUSE_PAGE_SLOTS;
             scheduleOpen(() -> openCropMenu(player, hasMore ? h.getPage() + 1 : h.getPage() - 1));
             return;
@@ -792,15 +793,30 @@ public final class GuiManager implements Listener {
         if (local < 0) {
             return;
         }
-        // 与渲染顺序一致：local → 作物索引 + 种子/产物
+        // 与渲染顺序一致：local → 条目列表索引（cropMenuEntries）
         int idx = h.getPage() * ConfigManager.WAREHOUSE_PAGE_SLOTS + local;
-        List<CropType> crops = new ArrayList<>(CropRegistry.all().values());
-        if (idx >= crops.size() * 2) {
+        List<WarehouseResource> entries = cropMenuEntries();
+        if (idx >= entries.size()) {
             return;
         }
-        CropType ct = crops.get(idx / 2);
-        boolean seed = idx % 2 == 0;
-        scheduleOpen(() -> openWarehouse(player, ct.getId(), seed ? "SEED" : "PRODUCT"));
+        WarehouseResource res = entries.get(idx);
+        scheduleOpen(() -> openWarehouse(player, res.getCropId(), res.getItemType()));
+    }
+
+    /**
+     * 农作物仓库条目列表（渲染与点击共用，顺序必须一致）：
+     * 有独立种子的作物 = [种子仓库, 产物仓库] 2 条；
+     * 无种子作物（本体当种子，如土豆/胡萝卜/竹子/苹果）= 产物仓库 1 条。
+     */
+    private List<WarehouseResource> cropMenuEntries() {
+        List<WarehouseResource> list = new ArrayList<>();
+        for (CropType ct : CropRegistry.all().values()) {
+            if (ct.hasSeed()) {
+                list.add(WarehouseResource.of(ct.getId(), "SEED"));
+            }
+            list.add(WarehouseResource.of(ct.getId(), "PRODUCT"));
+        }
+        return list;
     }
 
     private void handleBonemealClick(Player player, InventoryClickEvent e, GuiHolder h) {

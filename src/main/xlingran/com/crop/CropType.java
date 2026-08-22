@@ -17,6 +17,8 @@ public final class CropType {
     private final Material icon;
     private final Material seedMaterial;
     private final Material productMaterial;
+    /** 收割入仓库/取出的产物材质（如西瓜：成熟展示 MELON、入仓为 MELON_SLICE）；缺省=productMaterial。 */
+    private final Material harvestMaterial;
     private final String name;
     private final String farmName;
     private final int growMinSec;
@@ -28,7 +30,7 @@ public final class CropType {
     /** 生长界面从该阶段起展示 product-material 图标（此前展示 seed-material）。 */
     private final int showProductStage;
 
-    public CropType(String id, Material icon, Material seedMaterial, Material productMaterial,
+    public CropType(String id, Material icon, Material seedMaterial, Material productMaterial, Material harvestMaterial,
                     String name, String farmName,
                     int growMinSec, int growMaxSec,
                     int yieldProduct, int yieldSeed, boolean consumeSeed,
@@ -37,6 +39,7 @@ public final class CropType {
         this.icon = icon;
         this.seedMaterial = seedMaterial;
         this.productMaterial = productMaterial;
+        this.harvestMaterial = harvestMaterial != null ? harvestMaterial : productMaterial;
         this.name = name;
         this.farmName = farmName;
         this.growMinSec = growMinSec;
@@ -56,8 +59,11 @@ public final class CropType {
     /** 种植/补种/重播消耗的种子材料（背包侧）。 */
     public Material getSeedMaterial() { return seedMaterial; }
 
-    /** 收割产物材料（虚拟仓库展示/取出）。 */
+    /** 成熟/产物展示材质（生长界面、农田图标用）。 */
     public Material getProductMaterial() { return productMaterial; }
+
+    /** 收割入仓/取出材质（虚拟仓库展示/取出；如西瓜=西瓜片 MELON_SLICE）。 */
+    public Material getHarvestMaterial() { return harvestMaterial; }
 
     /** 作物显示名（如「小麦」）。 */
     public String getName() { return name; }
@@ -74,6 +80,14 @@ public final class CropType {
 
     /** 每周期种子收获数。 */
     public int getYieldSeed() { return yieldSeed; }
+
+    /**
+     * 是否有独立种子物品（种子材质 ≠ 产物材质）。
+     * 无独立种子的作物（土豆/胡萝卜/竹子/苹果等）用本体当种子，仓库只显示产物入口。
+     */
+    public boolean hasSeed() {
+        return seedMaterial != productMaterial;
+    }
 
     public boolean isConsumeSeed() { return consumeSeed; }
 

@@ -65,11 +65,22 @@ public final class ConfigLoader {
                 int yieldSeed = Math.max(0, gui.getInt("FarmUpdate." + id + ".LV1.SeedDrop", 1));
                 // 生长时长：先按 long 计算避免 int 溢出，再钳制并保证 max >= min
                 int[] grow = growSecRange(c);
+                // 收割入仓材质：优先取 config 的 harvest-material（未配置为 null）→
+                // 否则查内置映射（如西瓜成熟展示 MELON、入仓 MELON_SLICE）→ 再否则=产物材质
+                Material productMat = material(c, "product-material", material(c, "icon", Material.WHEAT));
+                Material harvestMat = material(c, "harvest-material", null);
+                if (harvestMat == null) {
+                    harvestMat = builtinHarvestMaterial(productMat);
+                    if (harvestMat == null) {
+                        harvestMat = productMat;
+                    }
+                }
                 list.add(new CropType(
                         id,
                         material(c, "icon", Material.WHEAT),
                         material(c, "seed-material", Material.WHEAT_SEEDS),
-                        material(c, "product-material", material(c, "icon", Material.WHEAT)),
+                        productMat,
+                        harvestMat,
                         str(c, "name", id),
                         str(c, "farm-name", str(c, "name", id) + "农田"),
                         grow[0],
@@ -106,6 +117,17 @@ public final class ConfigLoader {
         }
         Material m = Material.matchMaterial(s.trim());
         return m != null ? m : def;
+    }
+
+    /**
+     * 内置「展示材质 → 收割入仓材质」映射（无需在 config.yml 写 harvest-material）：
+     * 西瓜成熟展示 MELON，收割入仓为西瓜片 MELON_SLICE；未映射返回 null。
+     */
+    private static Material builtinHarvestMaterial(Material product) {
+        if (product == Material.MELON) {
+            return Material.MELON_SLICE;
+        }
+        return null;
     }
 
     private static String str(ConfigurationSection c, String path, String def) {

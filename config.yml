@@ -46,6 +46,8 @@ crops:
     seed-material: WHEAT_SEEDS
     # 收割产物材质（Material 名）——成熟图标、仓库展示/取出用它
     product-material: WHEAT
+    # 收割入仓材质一般与 product-material 相同；若不同（如西瓜成熟展示 MELON、
+    # 入仓为西瓜片 MELON_SLICE）由代码内置映射自动处理，无需在此配置
     # 作物显示名（GUI、消息中使用）
     name: "小麦"
     # 农田显示名（农田格/创建条目/生长界面标题）
@@ -96,9 +98,11 @@ crops:
   melon:
     icon: MELON
     seed-material: MELON_SEEDS
+    # 成熟后展示的物品（Material 名）——生长后期图标、成熟图标用它
     product-material: MELON
-    name: "甜瓜"
-    farm-name: "甜瓜农田"
+    # 收割入仓材质由代码内置映射（西瓜成熟展示 MELON、入仓自动为西瓜片 MELON_SLICE），无需配置
+    name: "西瓜"
+    farm-name: "西瓜农田"
     grow-min-hour: 2
     grow-max-hour: 4
     consume-seed: true
