@@ -556,9 +556,11 @@ Crop:
         name: ""
         Lore:
             - ""
-    # 作物仓库入口（后续新增作物按 {CropId}Seed / {CropId} 约定扩展）
+    # 农作物仓库入口条目（所有作物共用，用变量区分，无需逐一写死）：
+    #   material 支持 %icon%（种子入口=该作物种子材质、产物入口=该作物产物材质）——% 开头的值必须加引号
+    #   Lore / name 支持 %name%（作物名）与 %Farmitem%
     CropStorage:
-        material: %icon%
+        material: "%icon%"
         name: ""
         Lore:
             - "&a点击进入 %name% 仓库"
@@ -576,16 +578,10 @@ Crop:
         Lore:
             - ""
 
-# ================= 农作物仓库入口 / 作物仓库 Gui（共用 CropStorage 段） =================
-# 本段顶级同时作为「农作物仓库」每作物的入口条目（作物过多不逐一写死，用变量渲染）：
-#   material 支持 %icon%（种子入口=该作物种子材质、产物入口=该作物产物材质）
-#   Lore     支持 %name%（作物名）与 %Farmitem%
-#   name 同时是「作物仓库」GUI 标题（%Farmitem% = 作物名；留空回退默认「仓库」）
+# ================= 对应作物仓库 Gui =================
+# 农作物仓库入口条目见上方 Crop 段下的 CropStorage（材质/名称/Lore 用变量渲染）
 CropStorage:
-    material: "%icon%"
-    name: ""
-    Lore:
-        - "&a点击进入 %name% 仓库"
+    name: "%Farmitem%"
     Fill:
         material: BLACK_STAINED_GLASS_PANE
         name: ""

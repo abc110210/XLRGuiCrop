@@ -309,6 +309,7 @@ public final class ConfigManager {
         loadGuiItem(gui, "Bone.Prvepage");
         loadGuiItem(gui, "Crop.WheatSeed");
         loadGuiItem(gui, "Crop.Wheat");
+        loadGuiItem(gui, "Crop.CropStorage");
         loadGuiItem(gui, "Crop.Nextpage");
         loadGuiItem(gui, "Crop.Prvepage");
         loadGuiItem(gui, "CropStorage");

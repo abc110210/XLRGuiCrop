@@ -408,7 +408,7 @@ public final class GuiManager implements Listener {
         Arrays.fill(contents, frame());
         // 按作物动态生成入口：有独立种子作物 2 格（种子仓库在前、产物仓库在后），
         // 无种子作物（土豆/胡萝卜/竹子等，用本体当种子）只 1 格产物仓库，避免出现两个一模一样的东西；
-        // 条目配置共用 gui.yml CropStorage 段，材质/名称/Lore 支持 %icon%/%name%/%Farmitem% 变量
+        // 条目配置共用 gui.yml Crop.CropStorage 段，材质/名称/Lore 支持 %icon%/%name%/%Farmitem% 变量
         List<WarehouseResource> entries = cropMenuEntries();
         int start = h.getPage() * ConfigManager.WAREHOUSE_PAGE_SLOTS;
         int local = 0;
@@ -418,7 +418,7 @@ public final class GuiManager implements Listener {
             boolean seed = "SEED".equals(res.getItemType());
             Material mat = res.getMaterial();
             String entryName = "§6" + ct.getName() + (seed ? "种子仓库" : "仓库");
-            contents[INNER_SLOTS[local++]] = guiItem("CropStorage",
+            contents[INNER_SLOTS[local++]] = guiItem("Crop.CropStorage",
                     mat,
                     entryName,
                     List.of("§7点击查看" + ct.getName() + (seed ? "种子" : "") + "库存"),
