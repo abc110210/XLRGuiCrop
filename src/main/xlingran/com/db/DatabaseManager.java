@@ -22,11 +22,12 @@ import java.util.UUID;
 /**
  * SQLite 数据访问层。
  *
- * <p>三张表：
+ * <p>四张表：
  * <ul>
- *   <li>player_data —— 玩家总数（wheat_count / seed_count，后备虚拟仓库）</li>
+ *   <li>player_data —— 玩家基础数据（骨粉库存/解锁页数；wheat_count/seed_count 为历史小麦列，多作物已迁移 crop_stock）</li>
  *   <li>farm_slots —— 农田分页索引，slot_index 为全局槽位 = page*28+local(0-27)</li>
  *   <li>crop_plots —— 二级生长 GUI 每格状态（stage/started_at/duration_sec）</li>
+ *   <li>crop_stock —— 每作物 种子(SEED)/产物(PRODUCT) 库存（多作物收割入账与种子消耗）</li>
  * </ul>
  *
  * <p>连接按需开关（量小 + WAL 单写者），避免长期占用连接。
@@ -80,6 +81,65 @@ public final class DatabaseManager {
                     "started_at INTEGER DEFAULT 0," +
                     "duration_sec INTEGER DEFAULT 0," +
                     "PRIMARY KEY (uuid, farm_slot, plot_index))");
+            // 多作物库存：每种作物的种子(SEED)/产物(PRODUCT) 总数（后续作物仓库按此存取）
+            st.execute("CREATE TABLE IF NOT EXISTS crop_stock (" +
+                    "uuid TEXT NOT NULL," +
+                    "crop_id TEXT NOT NULL," +
+                    "item_type TEXT NOT NULL," + // SEED / PRODUCT
+                    "count INTEGER DEFAULT 0," +
+                    "PRIMARY KEY (uuid, crop_id, item_type))");
+            // 补偿持久化：资源补偿（退还种子/骨粉等）落库失败时记入，供管理员核对/重放
+            st.execute("CREATE TABLE IF NOT EXISTS compensation (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "uuid TEXT NOT NULL," +
+                    "kind TEXT NOT NULL," +          // SEED / BONEMEAL / WHEAT 等
+                    "crop_id TEXT," +
+                    "item_type TEXT," +
+                    "amount INTEGER NOT NULL," +
+                    "reason TEXT," +
+                    "created_at INTEGER DEFAULT 0)");
+            // 经济操作日志：升级/解锁扣款审计（DB+Vault 无法跨系统原子，供对账）
+            st.execute("CREATE TABLE IF NOT EXISTS op_log (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "uuid TEXT NOT NULL," +
+                    "kind TEXT NOT NULL," +          // FARM_UPGRADE / BONE_UNLOCK
+                    "detail TEXT," +
+                    "created_at INTEGER DEFAULT 0)");
+            // 经济操作状态机：升级/解锁扣款（DB+Vault 跨系统非原子）崩溃窗口恢复用
+            st.execute("CREATE TABLE IF NOT EXISTS economic_ops (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "op_id TEXT UNIQUE NOT NULL," +
+                    "uuid TEXT NOT NULL," +
+                    "kind TEXT NOT NULL," +          // FARM_UPGRADE / BONE_UNLOCK
+                    "detail TEXT," +
+                    "cost REAL DEFAULT 0," +
+                    "balance_before REAL DEFAULT 0," +
+                    "status TEXT DEFAULT 'PENDING'," + // PENDING / PAID / ROLLED_BACK
+                    "target_value INTEGER DEFAULT 0," +// 目标等级 / 目标页数
+                    "farm_slot INTEGER DEFAULT -1," +  // 农田全局槽位（非农田操作为 -1）
+                    "created_at INTEGER DEFAULT 0," +
+                    "updated_at INTEGER DEFAULT 0)");
+            // 旧库迁移（单事务，防止「迁移成功但置 0 失败」导致重启重复累加）
+            conn.setAutoCommit(false);
+            try {
+                st.executeUpdate("INSERT INTO crop_stock (uuid, crop_id, item_type, count) " +
+                        "SELECT uuid, 'wheat', 'PRODUCT', wheat_count FROM player_data WHERE wheat_count > 0 " +
+                        "ON CONFLICT(uuid, crop_id, item_type) DO UPDATE SET count = count + excluded.count");
+                st.executeUpdate("UPDATE player_data SET wheat_count = 0");
+                st.executeUpdate("INSERT INTO crop_stock (uuid, crop_id, item_type, count) " +
+                        "SELECT uuid, 'wheat', 'SEED', seed_count FROM player_data WHERE seed_count > 0 " +
+                        "ON CONFLICT(uuid, crop_id, item_type) DO UPDATE SET count = count + excluded.count");
+                st.executeUpdate("UPDATE player_data SET seed_count = 0");
+                conn.commit();
+            } catch (SQLException e) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ignored) {
+                }
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
             // 旧库迁移：补齐骨粉列
             try (ResultSet rs = st.executeQuery("PRAGMA table_info(player_data)")) {
                 boolean hasBonemeal = false;
@@ -118,6 +178,18 @@ public final class DatabaseManager {
                 }
                 if (!hasFast) {
                     st.execute("ALTER TABLE farm_slots ADD COLUMN bonemeal_fast INTEGER DEFAULT 0");
+                }
+            }
+            // 旧库迁移：compensation 补齐处理状态列（历史记录默认 PENDING，启动恢复时自动重放）
+            try (ResultSet rs = st.executeQuery("PRAGMA table_info(compensation)")) {
+                boolean hasStatus = false;
+                while (rs.next()) {
+                    if ("status".equals(rs.getString("name"))) {
+                        hasStatus = true;
+                    }
+                }
+                if (!hasStatus) {
+                    st.execute("ALTER TABLE compensation ADD COLUMN status TEXT DEFAULT 'PENDING'");
                 }
             }
         } catch (SQLException e) {
@@ -214,8 +286,341 @@ public final class DatabaseManager {
         }
     }
 
+    // ================= crop_stock（多作物库存：SEED / PRODUCT） =================
+
+    /** 查询某作物某项库存（itemType = SEED / PRODUCT）。 */
+    public long getCropStock(UUID uuid, String cropId, String itemType) {
+        ensurePlayer(uuid);
+        String sql = "SELECT count FROM crop_stock WHERE uuid=? AND crop_id=? AND item_type=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setString(2, cropId);
+            ps.setString(3, itemType);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong("count") : 0L;
+            }
+        } catch (SQLException e) {
+            logError(e, "getCropStock");
+            return 0L;
+        }
+    }
+
     /**
-     * 从种子仓库扣除，返回实际扣除数。
+     * 作物库存增减。正数直接累加（按配置 clamp 上限）；负数（扣减）为原子条件扣除——
+     * 库存不足整次失败返回 false。SQL 异常时轻量重试一次（SQLite 锁通常瞬时）。
+     */
+    public boolean addCropStock(UUID uuid, String cropId, String itemType, long delta) {
+        if (delta == 0) return true;
+        if (!ensurePlayer(uuid)) {
+            return false;
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+            Boolean r = addCropStockOnce(uuid, cropId, itemType, delta);
+            if (r != null) {
+                return r; // 业务结果（true 成功 / false 不足等），不重试
+            }
+            // r == null 表示 SQL 异常，重试一次
+        }
+        return false;
+    }
+
+    /** 返回 true=成功，false=业务失败（如库存不足），null=SQL 异常（可重试）。 */
+    private Boolean addCropStockOnce(UUID uuid, String cropId, String itemType, long delta) {
+        if (delta > 0) {
+            long max = ConfigManager.WAREHOUSE_MAX_STOCK;
+            // 上限保护：max>0 时单类库存 clamp 到上限；max=0 表示不限制
+            if (max <= 0) {
+                String sql = "INSERT INTO crop_stock (uuid, crop_id, item_type, count) VALUES (?, ?, ?, ?) " +
+                        "ON CONFLICT(uuid, crop_id, item_type) DO UPDATE SET count = count + excluded.count";
+                try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setString(1, uuid.toString());
+                    ps.setString(2, cropId);
+                    ps.setString(3, itemType);
+                    ps.setLong(4, delta);
+                    return ps.executeUpdate() > 0;
+                } catch (SQLException e) {
+                    logError(e, "addCropStock");
+                    return null;
+                }
+            }
+            String sql = "INSERT INTO crop_stock (uuid, crop_id, item_type, count) VALUES (?, ?, ?, MIN(?, ?)) " +
+                    "ON CONFLICT(uuid, crop_id, item_type) DO UPDATE SET count = MIN(count + excluded.count, ?)";
+            try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, uuid.toString());
+                ps.setString(2, cropId);
+                ps.setString(3, itemType);
+                ps.setLong(4, delta);
+                ps.setLong(5, max);
+                ps.setLong(6, max);
+                return ps.executeUpdate() > 0;
+            } catch (SQLException e) {
+                logError(e, "addCropStock");
+                return null;
+            }
+        }
+        String sql = "UPDATE crop_stock SET count = count + ? WHERE uuid=? AND crop_id=? AND item_type=? AND count >= ?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, delta);
+            ps.setString(2, uuid.toString());
+            ps.setString(3, cropId);
+            ps.setString(4, itemType);
+            ps.setLong(5, -delta);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            logError(e, "addCropStock");
+            return null;
+        }
+    }
+
+    /**
+     * 记录一条补偿（资源退还落库失败时的兜底台账）。
+     * 尽力写入；SQL 异常（SQLite 锁通常瞬时）轻量重试一次，仍失败才放弃（调用方已记录日志）。
+     */
+    public void addCompensation(UUID uuid, String kind, String cropId, String itemType, long amount, String reason) {
+        String sql = "INSERT INTO compensation (uuid, kind, crop_id, item_type, amount, reason, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)";
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, uuid.toString());
+                ps.setString(2, kind);
+                ps.setString(3, cropId);
+                ps.setString(4, itemType);
+                ps.setLong(5, amount);
+                ps.setString(6, reason);
+                ps.setLong(7, System.currentTimeMillis() / 1000);
+                ps.executeUpdate();
+                return;
+            } catch (SQLException e) {
+                logError(e, "addCompensation");
+            }
+        }
+    }
+
+    /** 记录一条经济/管理操作日志（升级/解锁审计，供对账）。 */
+    public void addOpLog(UUID uuid, String kind, String detail) {
+        String sql = "INSERT INTO op_log (uuid, kind, detail, created_at) VALUES (?, ?, ?, ?)";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setString(2, kind);
+            ps.setString(3, detail);
+            ps.setLong(4, System.currentTimeMillis() / 1000);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            logError(e, "addOpLog");
+        }
+    }
+
+    // ================= 经济操作状态机（升级/解锁幂等） =================
+
+    /**
+     * 开始一笔经济操作（status=PENDING），返回唯一 op_id；连续写入失败返回 null（调用方应中止操作）。
+     *
+     * <p>流程：登记 PENDING → 扣 Vault 金币 → 写 DB（幂等 at-least）→ 标记 PAID。
+     * 任一崩溃窗口由启动恢复 {@link #getPendingEconomicOps()} 按「余额是否已扣」判定补写/回滚。
+     */
+    public String beginEconomicOp(UUID uuid, String kind, String detail, double cost,
+                                  double balanceBefore, int targetValue, int farmSlot) {
+        String sql = "INSERT INTO economic_ops (op_id, uuid, kind, detail, cost, balance_before, status, target_value, farm_slot, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)";
+        for (int attempt = 0; attempt < 3; attempt++) {
+            String opId = UUID.randomUUID().toString();
+            long now = System.currentTimeMillis() / 1000;
+            try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, opId);
+                ps.setString(2, uuid.toString());
+                ps.setString(3, kind);
+                ps.setString(4, detail);
+                ps.setDouble(5, cost);
+                ps.setDouble(6, balanceBefore);
+                ps.setInt(7, targetValue);
+                ps.setInt(8, farmSlot);
+                ps.setLong(9, now);
+                ps.setLong(10, now);
+                return ps.executeUpdate() > 0 ? opId : null;
+            } catch (SQLException e) {
+                logError(e, "beginEconomicOp");
+            }
+        }
+        return null;
+    }
+
+    /** 结束一笔经济操作：成功标记 PAID，失败回滚标记 ROLLED_BACK。 */
+    public boolean finishEconomicOp(String opId, String status) {
+        String sql = "UPDATE economic_ops SET status=?, updated_at=? WHERE op_id=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status);
+            ps.setLong(2, System.currentTimeMillis() / 1000);
+            ps.setString(3, opId);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            logError(e, "finishEconomicOp");
+            return false;
+        }
+    }
+
+    /** 查询全部 PENDING 经济操作（启动恢复用）。 */
+    public List<EconomicOp> getPendingEconomicOps() {
+        List<EconomicOp> list = new ArrayList<>();
+        String sql = "SELECT op_id, uuid, kind, detail, cost, balance_before, status, target_value, farm_slot " +
+                "FROM economic_ops WHERE status='PENDING' ORDER BY id";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                list.add(new EconomicOp(
+                        rs.getString("op_id"),
+                        UUID.fromString(rs.getString("uuid")),
+                        rs.getString("kind"),
+                        rs.getString("detail"),
+                        rs.getDouble("cost"),
+                        rs.getDouble("balance_before"),
+                        rs.getString("status"),
+                        rs.getInt("target_value"),
+                        rs.getInt("farm_slot")));
+            }
+        } catch (SQLException e) {
+            logError(e, "getPendingEconomicOps");
+        }
+        return list;
+    }
+
+    /** 幂等升级：仅当当前等级低于目标时才更新（恢复补写可安全重入）。 */
+    public boolean setFarmLevelAtLeast(UUID uuid, int globalIndex, int level) {
+        String sql = "UPDATE farm_slots SET level=? WHERE uuid=? AND slot_index=? AND level < ?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, level);
+            ps.setString(2, uuid.toString());
+            ps.setInt(3, globalIndex);
+            ps.setInt(4, level);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            logError(e, "setFarmLevelAtLeast");
+            return false;
+        }
+    }
+
+    /** 幂等解锁页数：仅当当前页数低于目标时才更新（恢复补写可安全重入）。 */
+    public boolean setUnlockedPagesAtLeast(UUID uuid, int pages) {
+        ensurePlayer(uuid);
+        int target = Math.max(1, pages);
+        String sql = "UPDATE player_data SET bonemeal_unlocked=? WHERE uuid=? AND bonemeal_unlocked < ?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, target);
+            ps.setString(2, uuid.toString());
+            ps.setInt(3, target);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            logError(e, "setUnlockedPagesAtLeast");
+            return false;
+        }
+    }
+
+    // ================= 补偿台账（自动重放 / 管理员处理） =================
+
+    /** 标记补偿记录状态（PROCESSED=已处理）。 */
+    public boolean markCompensation(long id, String status) {
+        String sql = "UPDATE compensation SET status=? WHERE id=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status);
+            ps.setLong(2, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            logError(e, "markCompensation");
+            return false;
+        }
+    }
+
+    /** 查询一条补偿记录；不存在返回 null。 */
+    public CompensationRecord getCompensation(long id) {
+        String sql = "SELECT id, uuid, kind, crop_id, item_type, amount, reason, created_at, status " +
+                "FROM compensation WHERE id=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? mapCompensation(rs) : null;
+            }
+        } catch (SQLException e) {
+            logError(e, "getCompensation");
+            return null;
+        }
+    }
+
+    /** 查询指定状态的最新补偿记录（管理员查看用，倒序）。 */
+    public List<CompensationRecord> getCompensations(String status, int limit) {
+        List<CompensationRecord> list = new ArrayList<>();
+        String sql = "SELECT id, uuid, kind, crop_id, item_type, amount, reason, created_at, status " +
+                "FROM compensation WHERE status=? ORDER BY id DESC LIMIT ?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status);
+            ps.setInt(2, limit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapCompensation(rs));
+                }
+            }
+        } catch (SQLException e) {
+            logError(e, "getCompensations");
+        }
+        return list;
+    }
+
+    private CompensationRecord mapCompensation(ResultSet rs) throws SQLException {
+        return new CompensationRecord(
+                rs.getLong("id"),
+                UUID.fromString(rs.getString("uuid")),
+                rs.getString("kind"),
+                rs.getString("crop_id"),
+                rs.getString("item_type"),
+                rs.getLong("amount"),
+                rs.getString("reason"),
+                rs.getLong("created_at"),
+                rs.getString("status"));
+    }
+
+    /**
+     * 重放一条补偿：按 kind 补回对应库存（BONEMEAL→骨粉库存，SEED/PRODUCT→对应作物库存），
+     * 入账成功自动标记 PROCESSED。
+     *
+     * @return true 表示已成功重放并标记；false 表示无需/无法重放（记录保持原状态）
+     */
+    public boolean replayCompensation(long id) {
+        CompensationRecord c = getCompensation(id);
+        if (c == null || "PROCESSED".equals(c.status)) {
+            return false;
+        }
+        boolean ok;
+        switch (c.kind) {
+            case "BONEMEAL" -> ok = addBonemeal(c.uuid, c.amount);
+            case "SEED" -> ok = c.cropId != null && addCropStock(c.uuid, c.cropId, "SEED", c.amount);
+            case "PRODUCT" -> ok = c.cropId != null && addCropStock(c.uuid, c.cropId, "PRODUCT", c.amount);
+            default -> ok = false;
+        }
+        if (ok) {
+            if (markCompensation(id, "PROCESSED")) {
+                plugin.getLogger().info("补偿已重放: id=" + id + " kind=" + c.kind + " amount=" + c.amount);
+            } else {
+                plugin.getLogger().warning("补偿已入账但标记失败（下次重放会重复入账，请人工核对）: id=" + id);
+            }
+        } else {
+            plugin.getLogger().warning("补偿重放失败: id=" + id + " kind=" + c.kind + " amount=" + c.amount);
+        }
+        return ok;
+    }
+
+    /** 从某作物种子库存扣除，返回实际扣除数；扣减写库失败返回 0（杜绝免费种植）。 */
+    public int consumeSeed(UUID uuid, String cropId, int need) {
+        if (need <= 0) {
+            return 0;
+        }
+        long stock = getCropStock(uuid, cropId, "SEED");
+        int take = (int) Math.min(stock, need);
+        if (take > 0 && !addCropStock(uuid, cropId, "SEED", -take)) {
+            plugin.getLogger().warning("consumeSeed 扣减失败: uuid=" + uuid + " crop=" + cropId + " need=" + need);
+            return 0;
+        }
+        return Math.max(0, take);
+    }
+
+    /**
+     * 从种子仓库扣除（小麦种子，兼容旧入口），返回实际扣除数。
      *
      * <p>扣减写库失败（DB 锁/异常）时返回 0，让调用方走「不足/失败」分支，杜绝免费种植。
      */
@@ -292,6 +697,22 @@ public final class DatabaseManager {
     }
 
     // ================= farm_slots（农田分页） =================
+
+    /**
+     * 农田数量；-1 表示查询失败（调用方应阻止创建，防止 DB 故障时绕过农田上限）。
+     */
+    public int getFarmCount(UUID uuid) {
+        String sql = "SELECT COUNT(*) FROM farm_slots WHERE uuid=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            logError(e, "getFarmCount");
+            return -1;
+        }
+    }
 
     /** 已占用的全部全局槽位索引（升序）。 */
     public List<Integer> getFarmSlotIndexes(UUID uuid) {
@@ -370,6 +791,53 @@ public final class DatabaseManager {
             return ps.executeUpdate() > 0;
         } catch (SQLException e) {
             logError(e, "createFarmSlot");
+            return false;
+        }
+    }
+
+    /**
+     * 原子创建农田：farm_slots 建槽 + crop_plots 批量写入（单事务）。
+     * 任一失败整体回滚，杜绝「有槽位无地块 / 有地块无槽位」的残留；调用方应退还已扣种子。
+     *
+     * @param plots 需写入的种植槽（含 stage/started_at/duration_sec，通常 54 条）
+     */
+    public boolean createFarmTransaction(UUID uuid, int globalIndex, String cropType, List<PlotState> plots) {
+        ensurePlayer(uuid);
+        String insSlot = "INSERT INTO farm_slots (uuid, crop_type, slot_index) VALUES (?, ?, ?)";
+        String insPlot = "INSERT INTO crop_plots (uuid, farm_slot, plot_index, stage, started_at, duration_sec) " +
+                "VALUES (?, ?, ?, ?, ?, ?)";
+        try (Connection conn = open()) {
+            conn.setAutoCommit(false);
+            try {
+                try (PreparedStatement ps = conn.prepareStatement(insSlot)) {
+                    ps.setString(1, uuid.toString());
+                    ps.setString(2, cropType);
+                    ps.setInt(3, globalIndex);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(insPlot)) {
+                    for (PlotState p : plots) {
+                        ps.setString(1, uuid.toString());
+                        ps.setInt(2, globalIndex);
+                        ps.setInt(3, p.plotIndex);
+                        ps.setInt(4, p.stage);
+                        ps.setLong(5, p.startedAt);
+                        ps.setInt(6, p.durationSec);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException e) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ignored) {
+                }
+                throw e;
+            }
+        } catch (SQLException e) {
+            logError(e, "createFarmTransaction");
             return false;
         }
     }
@@ -498,23 +966,31 @@ public final class DatabaseManager {
                 "VALUES (?, ?, ?, ?, ?, ?) " +
                 "ON CONFLICT(uuid, farm_slot, plot_index) DO UPDATE SET " +
                 "stage=excluded.stage, started_at=excluded.started_at, duration_sec=excluded.duration_sec";
-        // 单事务批量写入：任一失败整体回滚，杜绝「部分格子已写、部分未写」造成状态不完整
+        // 单事务批量写入：任一失败显式回滚，杜绝「部分格子已写、部分未写」造成状态不完整
         try (Connection conn = open()) {
             conn.setAutoCommit(false);
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                for (PlotState p : plots) {
-                    ps.setString(1, uuid.toString());
-                    ps.setInt(2, farmSlot);
-                    ps.setInt(3, p.plotIndex);
-                    ps.setInt(4, p.stage);
-                    ps.setLong(5, p.startedAt);
-                    ps.setInt(6, p.durationSec);
-                    ps.addBatch();
+            try {
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    for (PlotState p : plots) {
+                        ps.setString(1, uuid.toString());
+                        ps.setInt(2, farmSlot);
+                        ps.setInt(3, p.plotIndex);
+                        ps.setInt(4, p.stage);
+                        ps.setLong(5, p.startedAt);
+                        ps.setInt(6, p.durationSec);
+                        ps.addBatch();
+                    }
+                    ps.executeBatch();
                 }
-                ps.executeBatch();
+                conn.commit();
+                return true;
+            } catch (SQLException e) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ignored) {
+                }
+                throw e;
             }
-            conn.commit();
-            return true;
         } catch (SQLException e) {
             logError(e, "savePlots");
             return false;
@@ -529,7 +1005,7 @@ public final class DatabaseManager {
      *
      * @return true 表示成功（产量已入账、槽位已重置）；false 表示失败（调用方应回滚已扣种子并跳过该农场）
      */
-    public boolean settleHarvest(UUID uuid, int farmSlot, List<PlotState> plots, long wheatGain, long seedGain) {
+    public boolean settleHarvest(UUID uuid, int farmSlot, String cropId, List<PlotState> plots, long productGain, long seedGain) {
         if (!ensurePlayer(uuid)) {
             plugin.getLogger().warning("settleHarvest 玩家行不可用，已放弃该农场: uuid=" + uuid + " farmSlot=" + farmSlot);
             return false;
@@ -538,8 +1014,7 @@ public final class DatabaseManager {
                 "VALUES (?, ?, ?, ?, ?, ?) " +
                 "ON CONFLICT(uuid, farm_slot, plot_index) DO UPDATE SET " +
                 "stage=excluded.stage, started_at=excluded.started_at, duration_sec=excluded.duration_sec";
-        // 入账恒为正数，直接累加即可（扣减侧由 addCount/consumeX 的原子条件扣除保证下限）
-        String credit = "UPDATE player_data SET wheat_count = wheat_count + ?, seed_count = seed_count + ? WHERE uuid=?";
+        // 产物/种子入账到该作物的 crop_stock（入账恒为正数，扣减侧由原子条件扣除保证下限；上限按配置 clamp 或不限制）
         try (Connection conn = open()) {
             conn.setAutoCommit(false);
             try {
@@ -555,15 +1030,10 @@ public final class DatabaseManager {
                     }
                     ps.executeBatch();
                 }
-                int affected;
-                try (PreparedStatement ps = conn.prepareStatement(credit)) {
-                    ps.setLong(1, wheatGain);
-                    ps.setLong(2, seedGain);
-                    ps.setString(3, uuid.toString());
-                    affected = ps.executeUpdate();
-                }
+                int p = creditStock(conn, cropId, "PRODUCT", productGain, uuid);
+                int s = creditStock(conn, cropId, "SEED", seedGain, uuid);
                 // 入账影响 0 行（玩家行缺失）：回滚并判失败，防止「槽位已重置但产物未入账」
-                if (affected <= 0) {
+                if (p <= 0 || s <= 0) {
                     throw new SQLException("入账影响 0 行，玩家行缺失");
                 }
                 conn.commit();
@@ -578,6 +1048,49 @@ public final class DatabaseManager {
         } catch (SQLException e) {
             logError(e, "settleHarvest");
             return false;
+        }
+    }
+
+    /** 在给定事务连接上入账某作物库存；max<=0 时不限制上限，否则 clamp；达上限记录日志。 */
+    private int creditStock(Connection conn, String cropId, String itemType, long amount, UUID uuid) throws SQLException {
+        long max = ConfigManager.WAREHOUSE_MAX_STOCK;
+        if (max <= 0) {
+            String sql = "INSERT INTO crop_stock (uuid, crop_id, item_type, count) VALUES (?, ?, ?, ?) " +
+                    "ON CONFLICT(uuid, crop_id, item_type) DO UPDATE SET count = count + excluded.count";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, uuid.toString());
+                ps.setString(2, cropId);
+                ps.setString(3, itemType);
+                ps.setLong(4, amount);
+                return ps.executeUpdate();
+            }
+        }
+        // 达上限预警：查询当前（同连接可见未提交），超出部分将被 clamp 丢弃
+        long cur = 0L;
+        try (PreparedStatement q = conn.prepareStatement("SELECT count FROM crop_stock WHERE uuid=? AND crop_id=? AND item_type=?")) {
+            q.setString(1, uuid.toString());
+            q.setString(2, cropId);
+            q.setString(3, itemType);
+            try (ResultSet rs = q.executeQuery()) {
+                if (rs.next()) {
+                    cur = rs.getLong("count");
+                }
+            }
+        }
+        if (cur + amount > max) {
+            plugin.getLogger().warning("仓库库存达上限，超出部分未入账: uuid=" + uuid + " crop=" + cropId
+                    + " type=" + itemType + " 超出=" + (cur + amount - max));
+        }
+        String sql = "INSERT INTO crop_stock (uuid, crop_id, item_type, count) VALUES (?, ?, ?, MIN(?, ?)) " +
+                "ON CONFLICT(uuid, crop_id, item_type) DO UPDATE SET count = MIN(count + excluded.count, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setString(2, cropId);
+            ps.setString(3, itemType);
+            ps.setLong(4, amount);
+            ps.setLong(5, max);
+            ps.setLong(6, max);
+            return ps.executeUpdate();
         }
     }
 
@@ -628,6 +1141,58 @@ public final class DatabaseManager {
         } catch (SQLException e) {
             logError(e, "deleteFarm");
             return false;
+        }
+    }
+
+    /** 一笔进行中的经济操作（升级/解锁）：PENDING → PAID / ROLLED_BACK。 */
+    public static final class EconomicOp {
+        public final String opId;
+        public final UUID uuid;
+        public final String kind;
+        public final String detail;
+        public final double cost;
+        public final double balanceBefore;
+        public final String status;
+        public final int targetValue;
+        public final int farmSlot;
+
+        EconomicOp(String opId, UUID uuid, String kind, String detail, double cost,
+                   double balanceBefore, String status, int targetValue, int farmSlot) {
+            this.opId = opId;
+            this.uuid = uuid;
+            this.kind = kind;
+            this.detail = detail;
+            this.cost = cost;
+            this.balanceBefore = balanceBefore;
+            this.status = status;
+            this.targetValue = targetValue;
+            this.farmSlot = farmSlot;
+        }
+    }
+
+    /** 一条补偿台账记录（status：PENDING 待处理 / PROCESSED 已重放）。 */
+    public static final class CompensationRecord {
+        public final long id;
+        public final UUID uuid;
+        public final String kind;
+        public final String cropId;
+        public final String itemType;
+        public final long amount;
+        public final String reason;
+        public final long createdAt;
+        public final String status;
+
+        CompensationRecord(long id, UUID uuid, String kind, String cropId, String itemType,
+                           long amount, String reason, long createdAt, String status) {
+            this.id = id;
+            this.uuid = uuid;
+            this.kind = kind;
+            this.cropId = cropId;
+            this.itemType = itemType;
+            this.amount = amount;
+            this.reason = reason;
+            this.createdAt = createdAt;
+            this.status = status;
         }
     }
 }

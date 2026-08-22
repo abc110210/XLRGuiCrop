@@ -50,7 +50,13 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length == 0) {
-            player.sendMessage("§e用法: /xlr crop [create|farm|gui|bone|menu|update]");
+            player.sendMessage("§e输入 /xlr help 查看 XLRGuiCrop 帮助。");
+            return true;
+        }
+        if ("help".equalsIgnoreCase(args[0]) || "-h".equalsIgnoreCase(args[0]) || "--help".equalsIgnoreCase(args[0])) {
+            for (String line : ConfigManager.MSG_HELP) {
+                player.sendMessage(line);
+            }
             return true;
         }
         UUID uuid = player.getUniqueId();
@@ -65,7 +71,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
 
     private void handleCrop(Player player, UUID uuid, String[] args) {
         if (args.length == 1) {
-            player.sendMessage("§e用法: /xlr crop [create|farm|gui|bone|menu|update]");
+            player.sendMessage("§e用法: /xlr crop [create|farm|gui|bone|menu|update|comp]");
             return;
         }
         switch (args[1].toLowerCase()) {
@@ -82,35 +88,35 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 createCrop(player, uuid, args[2]);
             }
             case "farm" -> {
-                if (!player.hasPermission("xlr.farm")) {
+                if (!player.hasPermission("xlr.crop.farm")) {
                     player.sendMessage(ConfigManager.MSG_NO_PERM);
                     return;
                 }
                 gui.openFarm(player, 0);
             }
             case "gui" -> {
-                if (!player.hasPermission("xlr.crop")) {
+                if (!player.hasPermission("xlr.crop.gui")) {
                     player.sendMessage(ConfigManager.MSG_NO_PERM);
                     return;
                 }
                 gui.openCropMenu(player, 0);
             }
             case "bone" -> {
-                if (!player.hasPermission("xlr.crop")) {
+                if (!player.hasPermission("xlr.crop.bone")) {
                     player.sendMessage(ConfigManager.MSG_NO_PERM);
                     return;
                 }
                 gui.openBonemeal(player, 0);
             }
             case "menu" -> {
-                if (!player.hasPermission("xlr.crop")) {
+                if (!player.hasPermission("xlr.crop.menu")) {
                     player.sendMessage(ConfigManager.MSG_NO_PERM);
                     return;
                 }
                 gui.openMenu(player);
             }
             case "update" -> {
-                if (!player.hasPermission("xlr.admin")) {
+                if (!player.hasPermission("xlr.crop.update.bone")) {
                     player.sendMessage(ConfigManager.MSG_NO_PERM);
                     return;
                 }
@@ -120,7 +126,14 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 }
                 updateBonemealPages(player, args[3], args[4]);
             }
-            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|update]");
+            case "comp" -> {
+                if (!player.hasPermission("xlr.crop.comp")) {
+                    player.sendMessage(ConfigManager.MSG_NO_PERM);
+                    return;
+                }
+                handleComp(player, args);
+            }
+            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp]");
         }
     }
 
@@ -130,16 +143,29 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             player.sendMessage("§c未知作物: " + typeId + " §7（当前支持: " + String.join("、", CropRegistry.all().keySet()) + "）");
             return;
         }
+        // 农田上限：动态权限 xlr.crop.create.farm.<N> 或默认配置
+        int maxFarms = ConfigManager.allowedFarms(player);
+        int farmCount = db.getFarmCount(uuid);
+        if (farmCount < 0) {
+            // 查询失败：阻止创建，防止 DB 故障时绕过农田上限
+            player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            return;
+        }
+        if (farmCount >= maxFarms) {
+            player.sendMessage(ConfigManager.MSG_FARM_LIMIT.replace("%max%", String.valueOf(maxFarms)));
+            return;
+        }
         // 创建农田：扣种子（背包优先→仓库），有几颗种几格
         int globalIndex = cropManager.createFarm(player, ct);
         if (globalIndex < 0) {
-            player.sendMessage(ConfigManager.MSG_NO_SEED);
+            player.sendMessage(ConfigManager.MSG_NO_SEED.replace("%seedname%", ct.getName() + "种子"));
             return;
         }
         int planted = CropManager.PLOT_COUNT - cropManager.countEmptyPlots(uuid, globalIndex);
         int page = globalIndex / ConfigManager.FARM_PAGE_SLOTS + 1;
         int slot = globalIndex % ConfigManager.FARM_PAGE_SLOTS + 1;
         player.sendMessage(ConfigManager.MSG_CROP_CREATED
+                .replace("%farmname%", ct.getFarmName())
                 .replace("%page%", String.valueOf(page))
                 .replace("%slot%", String.valueOf(slot))
                 .replace("%replant%", String.valueOf(planted)));
@@ -174,7 +200,9 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             targetUuid = op.getUniqueId();
         }
         int current = db.getUnlockedPages(targetUuid);
-        int total = Math.max(1, current) + delta;
+        // 防溢出：先转 long 相加，超过 int 上限直接钳制，避免负数被 setUnlockedPages 钳成 1（管理员误操作重置页数）
+        long sum = (long) Math.max(1, current) + delta;
+        int total = sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
         if (!db.setUnlockedPages(targetUuid, total)) {
             sender.sendMessage(ConfigManager.MSG_DB_ERROR);
             return;
@@ -183,6 +211,67 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 .replace("%player%", targetName)
                 .replace("%count%", String.valueOf(delta))
                 .replace("%total%", String.valueOf(total)));
+        // 管理操作审计
+        db.addOpLog(targetUuid, "BONE_UPDATE", "by=" + sender.getName() + " delta=" + delta + " total=" + total);
+    }
+
+    /** 补偿台账管理：/xlr crop comp [list|replay <id>|done <id>]（xlr.crop.comp，默认 op）。 */
+    private void handleComp(Player player, String[] args) {
+        if (args.length < 3) {
+            player.sendMessage("§e用法: /xlr crop comp [list|replay <id>|done <id>]");
+            return;
+        }
+        switch (args[2].toLowerCase()) {
+            case "list" -> {
+                List<DatabaseManager.CompensationRecord> list = db.getCompensations("PENDING", 20);
+                if (list.isEmpty()) {
+                    player.sendMessage("§a没有待处理的补偿记录。");
+                    return;
+                }
+                player.sendMessage("§e待处理补偿（最多 20 条，倒序）:");
+                for (DatabaseManager.CompensationRecord c : list) {
+                    player.sendMessage("§7#" + c.id + " §f" + c.uuid.toString().substring(0, 8)
+                            + " §e" + c.kind + (c.cropId != null ? "/" + c.cropId : "")
+                            + " §b×" + c.amount + " §7" + c.reason);
+                }
+            }
+            case "replay" -> {
+                long id = parseCompId(player, args);
+                if (id < 0) {
+                    return;
+                }
+                if (db.replayCompensation(id)) {
+                    player.sendMessage("§a已重放补偿 #" + id + " 并标记已处理。");
+                } else {
+                    player.sendMessage("§c重放失败（记录不存在/已处理/落库失败），请先 /xlr crop comp list 核对。");
+                }
+            }
+            case "done" -> {
+                long id = parseCompId(player, args);
+                if (id < 0) {
+                    return;
+                }
+                if (db.markCompensation(id, "PROCESSED")) {
+                    player.sendMessage("§a已将补偿 #" + id + " 标记为已处理。");
+                } else {
+                    player.sendMessage("§c标记失败（记录不存在）。");
+                }
+            }
+            default -> player.sendMessage("§e用法: /xlr crop comp [list|replay <id>|done <id>]");
+        }
+    }
+
+    private long parseCompId(Player player, String[] args) {
+        if (args.length < 4) {
+            player.sendMessage("§c缺少补偿 ID，用法: /xlr crop comp [replay|done] <id>");
+            return -1;
+        }
+        try {
+            return Long.parseLong(args[3]);
+        } catch (NumberFormatException e) {
+            player.sendMessage("§c补偿 ID 必须为数字。");
+            return -1;
+        }
     }
 
     @Override
@@ -192,7 +281,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         }
         if ("crop".equalsIgnoreCase(args[0])) {
             if (args.length == 2) {
-                return filter(List.of("create", "farm", "gui", "bone", "menu", "update"), args[1]);
+                return filter(List.of("create", "farm", "gui", "bone", "menu", "update", "comp", "help"), args[1]);
             }
             if (args.length == 3 && "create".equalsIgnoreCase(args[1])) {
                 // 创建指令只接受英文作物 id
@@ -200,6 +289,9 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             }
             if (args.length == 3 && "update".equalsIgnoreCase(args[1])) {
                 return filter(List.of("bone"), args[2]);
+            }
+            if (args.length == 3 && "comp".equalsIgnoreCase(args[1])) {
+                return filter(List.of("list", "replay", "done"), args[2]);
             }
         }
         return Collections.emptyList();

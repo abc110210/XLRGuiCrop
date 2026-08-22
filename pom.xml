@@ -58,11 +58,14 @@
         <!-- 用户约定：源码目录为 src/main，包 xlingran.com 对应 src/main/xlingran/com/ -->
         <sourceDirectory>src/main</sourceDirectory>
         <resources>
-            <!-- plugin.yml 按约定放项目根目录（与 src 同级），构建时复制进 jar -->
+            <!-- plugin.yml / config.yml / gui.yml 按约定放项目根目录（与 src 同级），构建时复制进 jar，
+                 首次启动由 ConfigLoader 释放到插件数据目录 -->
             <resource>
                 <directory>${project.basedir}</directory>
                 <includes>
                     <include>plugin.yml</include>
+                    <include>config.yml</include>
+                    <include>gui.yml</include>
                 </includes>
             </resource>
             <resource>
@@ -75,6 +78,15 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.14.1</version>
+                <configuration>
+                    <!-- 防御：GitHub 仓库曾残留「src/main 目录被整体复制进 com 内」的嵌套源码副本
+                         （src/main/xlingran/com/src/main/xlingran/com/...），导致 10 个 duplicate class。
+                         正确源码相对 sourceDirectory 位于 xlingran/com/ 下、不含 src/main 段，不受影响。
+                         根治：删除仓库中的嵌套目录，勿长期依赖此排除。 -->
+                    <excludes>
+                        <exclude>**/src/main/**</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
             <!-- shade：打包 sqlite-jdbc 并排除签名文件，避免 "Invalid signature" 启动错误 -->
             <plugin>

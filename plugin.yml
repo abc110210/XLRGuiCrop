@@ -11,20 +11,32 @@ softdepend: [Vault]
 commands:
   xlr:
     description: XLRGuiCrop 主命令
-    usage: /xlr crop [create|farm|gui|bone|menu|update]
+    usage: /xlr [help|crop [create|farm|gui|bone|menu|update|comp]]
     aliases: []
 
 # 权限
 permissions:
-  xlr.farm:
-    description: 打开农田 GUI
-    default: true
-  xlr.crop:
-    description: 打开农作物仓库 GUI
+  xlr.crop.farm:
+    description: 打开农田、生长界面、农田管理
     default: true
   xlr.crop.create:
     description: 创建农田
     default: true
-  xlr.admin:
-    description: 骨粉页数解锁等管理指令
+  xlr.crop.bone:
+    description: 打开骨粉储存器
+    default: true
+  xlr.crop.menu:
+    description: 打开主菜单
+    default: true
+  xlr.crop.gui:
+    description: 打开农作物仓库、作物仓库
+    default: true
+  xlr.crop.update.bone:
+    description: 可使用 /xlr crop update bone <玩家ID> <页数> 给玩家叠加解锁骨粉页
+    default: op
+  xlr.crop.create.farm.*:
+    description: 动态权限，数字 = 可创建的农田上限（如 xlr.crop.create.farm.1 = 只能拥有 1 块地）
+    default: false
+  xlr.crop.comp:
+    description: 查看/重放/确认补偿台账（/xlr crop comp）
     default: op

@@ -1,0 +1,609 @@
+# ============================================================
+# XLRGuiCrop GUI 布局配置文件
+# material: 物品材质（Material 名）；留空则用代码默认值
+# slot:     槽位索引（0 起）；翻页/动态条目留空，由代码按页计算
+# name:     显示名称（支持占位符 %page% %farmname% %level% %BoneVariable% %money% %item% %stage% %bar% 等）
+# Lore:     描述行（同样支持占位符）
+# 颜色代码用 & 前缀（加载时自动转 §）
+# ============================================================
+
+# ================= 主菜单 =================
+menu:
+    name: "主菜单"
+    # 填充（无 slot：外框多格共用）
+    Fill:
+        material: BLACK_STAINED_GLASS_PANE
+        name: ""
+        Lore:
+            - ""
+    # 农田创建
+    Farmcreate:
+        material: WHEAT
+        slot: 10
+        name: "&6创建农田"
+        Lore:
+            - "创建新的农田"
+    Farm:
+        material: GRASS_BLOCK
+        slot: 12
+        name: "&6农田"
+        Lore:
+            - "点击进入自己的农田"
+    Bone:
+        material: BONE_MEAL
+        slot: 14
+        name: "&6骨粉储存"
+        Lore:
+            - "点击进入骨粉储存"
+    Crop:
+        material: CHEST
+        slot: 16
+        name: "&6农作物仓库"
+        Lore:
+            - "点击进入农作物仓库"
+
+# ================= 创建农田的 Gui =================
+Farmcreate:
+    name: "创建农田"
+    Fill:
+        material: BLACK_STAINED_GLASS_PANE
+        name: ""
+        Lore:
+            - ""
+    # 作物条目（%item%/%farmname% 由代码按作物填充，从起始槽位起依次排列）
+    Wheat:
+        material: "%item%"
+        slot: 10
+        name: "&b%farmname%"
+        Lore:
+            - ""
+
+# ================= 农田 Gui =================
+Farm:
+    name: "农田 · 第 %page% 页"
+    Fill:
+        material: BLACK_STAINED_GLASS_PANE
+        name: ""
+        Lore:
+            - ""
+    # 农田格（内部 28 格动态渲染，%farmname%/%level% 由代码填充）
+    Farmplot:
+        material: "%item%"
+        slot:
+        name: "&b%farmname% LV.%level%"
+        Lore:
+            - "左键: 进入作物生长"
+            - "右键: 进入农田管理"
+    # 下一页（无 slot：第 1 页 slot49 / 第 2 页起 slot51，由代码按页放置）
+    Nextpage:
+        material: ARROW
+        name: "&a下一页"
+        Lore:
+            - ""
+    # 上一页（无 slot：slot47，仅非首页显示）
+    Prvepage:
+        material: ARROW
+        name: "&a上一页"
+        Lore:
+            - ""
+    # 骨粉储存器入口
+    Bone:
+        material: BONE_MEAL
+        slot: 53
+        name: "&a骨粉储存器"
+        Lore:
+            - ""
+
+# ================= 二级生长 Gui =================
+Farmplot:
+    name: "%farmname%"
+    Fill:
+        material: BLACK_STAINED_GLASS_PANE
+        name: ""
+        Lore:
+            - ""
+    # 生长中（%item%/%stage%/%bar%/%currentstage%/%maxstage%/%time% 由代码填充）
+    CropGrowing:
+        material: "%item%"
+        name: "生长中 LV.%stage%"
+        Lore:
+            - "[%bar%]"
+            - "阶段: %currentstage% / %maxstage%"
+            - "剩余 %time%"
+    # 已成熟
+    CropMature:
+        material: "%item%"
+        name: "已成熟"
+        Lore:
+            - "等待自动收割..."
+
+# 时间单位
+Hours: 小时
+Minutes: 分
+Seconds: 秒
+
+# ================= 农田管理 Gui =================
+Farmmanage:
+    name: "农田管理"
+    Fill:
+        material: BLACK_STAINED_GLASS_PANE
+        name: ""
+        Lore:
+            - ""
+    # 补种
+    Seed:
+        material: WHEAT_SEEDS
+        slot: 10
+        name: "&a点击补种"
+        Lore:
+            - "补种"
+            - ""
+    # 升级（%level%/%money%/%lore% 由代码填充）
+    Update:
+        material: HOPPER
+        slot: 12
+        name: "&a农田升级"
+        Lore:
+            - "当前LV.%level%"
+            - "升级到 LV.%level% 需 %money% 金币"
+            - "%lore%"
+    # 骨粉加速开关（%BoneVariable% = 开/关，取自 BoneVariable 段）
+    Bone:
+        material: LEVER
+        slot: 16
+        name: "&a骨粉加速"
+        Lore:
+            - "当前状态: %BoneVariable%"
+    # 删除农田
+    DeleFram:
+        material: BARRIER
+        slot: 22
+        name: "&c删除农田"
+        Lore:
+            - "点击删除该农田"
+    # 返回
+    Prvepage:
+        material: ARROW
+        slot: 18
+        name: "&a上一页"
+        Lore:
+            - ""
+
+# ================= 骨粉开关变量 =================
+BoneVariable:
+    BoneOn: "开"
+    BoneOFF: "关"
+
+# ================= 升级设置（LV1 为默认创建效果） =================
+# 说明：
+#   - 作物 key（wheat/beetroot/...）必须与 config.yml 的 crops 段 id 一致（小写）
+#   - LV1 为初始产量，请勿写上 Money（会导致出错）
+#   - Money: 升级到该等级的金币价格（仅 LV2+ 需要）
+#   - TimeReduction: 该等级下每周期成长时间缩短百分比（0 或缺省 = 不缩短）
+#   - Drop / SeedDrop: 该等级下每周期 产物 / 种子 收获数
+FarmUpdate:
+    wheat:
+        LV1:
+            # 掉落
+            Drop: 1
+            # 种子掉落
+            SeedDrop: 1
+            # 显示Lore，于Update下的 %lore% 互绑
+            Lore: "LV1 产量: 1 小麦 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 小麦 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 小麦 + 2种子"
+    beetroot:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 甜菜根 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 甜菜根 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 甜菜根 + 2种子"
+    carrot:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 胡萝卜 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 胡萝卜 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 胡萝卜 + 2种子"
+    potato:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 马铃薯 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 马铃薯 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 马铃薯 + 2种子"
+    melon:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 甜瓜 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 甜瓜 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 甜瓜 + 2种子"
+    pumpkin:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 南瓜 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 南瓜 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 南瓜 + 2种子"
+    bamboo:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 竹子 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 竹子 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 竹子 + 2种子"
+    cocoa:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 可可豆 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 可可豆 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 可可豆 + 2种子"
+    sugarcane:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 甘蔗 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 甘蔗 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 甘蔗 + 2种子"
+    cactus:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 仙人掌 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 仙人掌 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 仙人掌 + 2种子"
+    mushroom:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 蘑菇 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 蘑菇 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 蘑菇 + 2种子"
+    kelp:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 海带 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 海带 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 海带 + 2种子"
+    sea_pickle:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 海泡菜 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 海泡菜 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 海泡菜 + 2种子"
+    glow_berries:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 发光浆果 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 发光浆果 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 发光浆果 + 2种子"
+    nether_wart:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 下界疣 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 下界疣 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 下界疣 + 2种子"
+    crimson_fungus:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 绯红菌 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 绯红菌 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 绯红菌 + 2种子"
+    warped_fungus:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 扭曲菌 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 扭曲菌 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 扭曲菌 + 2种子"
+    chorus_flower:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 歌莱花 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 歌莱花 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 歌莱花 + 2种子"
+    apple:
+        LV1:
+            Drop: 1
+            SeedDrop: 1
+            Lore: "LV1 产量: 1 苹果 + 1 种子"
+        LV2:
+            Drop: 2
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 10
+            Lore: "LV2 产量: 2 苹果 + 2种子"
+        LV3:
+            Drop: 3
+            SeedDrop: 2
+            Money: 1000
+            TimeReduction: 20
+            Lore: "LV3 产量: 3 苹果 + 2种子"
+
+# ================= 骨粉储存 Gui =================
+Bone:
+    name: "骨粉储存器 · 第 %page% 页"
+    Fill:
+        material: BLACK_STAINED_GLASS_PANE
+        name: ""
+        Lore:
+            - ""
+    # 升级解锁（%money%/%page% 由代码填充）
+    Update:
+        material: CHEST
+        slot: 49
+        name: "&a升级解锁下一页"
+        Lore:
+            - "&b花费 %money% 金币来解锁第 %page% 页"
+    Nextpage:
+        material: ARROW
+        slot: 51
+        name: "&a下一页"
+        Lore:
+            - ""
+    Prvepage:
+        material: ARROW
+        slot: 47
+        name: "&a上一页"
+        Lore:
+            - ""
+
+# ================= 骨粉页面升级价格 =================
+UpdateBone:
+    # 第一页默认解锁，所以从第二页开始
+    Page2:
+        Money: 1000
+    Page3:
+        Money: 2000
+    Page4:
+        Money: 3000
+
+# ================= 农作物仓库 Gui =================
+Crop:
+    name: "农作物仓库 · 第 %page% 页"
+    Fill:
+        material: BLACK_STAINED_GLASS_PANE
+        name: ""
+        Lore:
+            - ""
+    # 作物仓库入口（后续新增作物按 {CropId}Seed / {CropId} 约定扩展）
+    WheatSeed:
+        material: WHEAT_SEEDS
+        slot: 10
+        name: "&6小麦种子仓库"
+        Lore:
+            - ""
+    Wheat:
+        material: WHEAT
+        slot: 11
+        name: "&6小麦仓库"
+        Lore:
+            - ""
+    # 翻页（同格：第 1 页下一页 / 第 2 页上一页）
+    Nextpage:
+        material: ARROW
+        slot: 49
+        name: "&a下一页"
+        Lore:
+            - ""
+    Prvepage:
+        material: ARROW
+        slot: 49
+        name: "&a上一页"
+        Lore:
+            - ""
+
+# ================= 对应作物仓库 Gui =================
+CropStorage:
+    name: "%Farmitem%"
+    Fill:
+        material: BLACK_STAINED_GLASS_PANE
+        name: ""
+        Lore:
+            - ""
+    # 补货
+    Restock:
+        material: CHEST
+        slot: 49
+        name: "&a点击填充"
+        Lore:
+            - ""
+    # 返回
+    Back:
+        material: ARROW
+        slot: 47
+        name: "&a返回农作物仓库"
+        Lore:
+            - ""
+
+# ================= 给上面 Gui 使用 =================
+# 作物显示名/农田名已由 config.yml 的 crops 段（name / farm-name）提供，此处不再重复

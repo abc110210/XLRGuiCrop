@@ -1,0 +1,307 @@
+# ============================================================
+# XLRGuiCrop 主配置文件
+# GUI 布局 / 标题 / 槽位 / 升级 / 解锁价格 / 每级产量 见 gui.yml
+# 语言文本统一在下方 message: 顶级主键下（可单独按语言替换）
+# 修改后需重启插件生效
+# ============================================================
+
+# ---------- 存储 ----------
+storage:
+  # SQLite 数据库文件（相对服务端根目录）
+  db-file: "plugins/XLRGuiCrop/data.db"
+
+# ---------- 调度 ----------
+tick:
+  # 自动收割结算间隔（秒）；离线期间按真实时间补算，越短结算越及时、DB 压力越大
+  interval-sec: 60
+
+# ---------- 农田 ----------
+farm:
+  # 补种/自动重播 1 格消耗的种子数
+  replant-cost-seed: 1
+  # 删除农田聊天二次确认超时（秒）
+  delete-confirm-timeout-sec: 60
+  # 玩家默认可拥有的农田数量上限
+  # （拥有动态权限 xlr.crop.create.farm.<数字> 的玩家按权限数字，见 plugin.yml）
+  default-max-farms: 1
+
+# ---------- 仓库 ----------
+warehouse:
+  # 每个作物单类库存（种子/产物分别计算）上限，超出部分不再入账；设为 0 表示不限制
+  max-stock: 0
+
+# ---------- 骨粉 ----------
+bonemeal:
+  # 自动重播时骨粉加速系数（成熟时长 × 该值，缩短比例 = 1 - 系数）
+  fast-factor: 0.8
+  # 骨粉加速每次消耗骨粉数
+  fast-cost: 1
+
+crops:
+  # 作物 id（唯一标识，命令 /xlr crop create <id> 与 DB 使用，用小写英文）
+  wheat:
+    # 作物图标材质（Material 名），用于农田/创建/生长界面展示
+    icon: WHEAT
+    # 种植/补种/重播消耗的种子材质（Material 名）——生长前期图标也用它
+    seed-material: WHEAT_SEEDS
+    # 收割产物材质（Material 名）——成熟图标、仓库展示/取出用它
+    product-material: WHEAT
+    # 作物显示名（GUI、消息中使用）
+    name: "小麦"
+    # 农田显示名（农田格/创建条目/生长界面标题）
+    farm-name: "小麦农田"
+    # 每周期生长随机时长下限（小时）
+    grow-min-hour: 2
+    # 每周期生长随机时长上限（小时）
+    grow-max-hour: 4
+    # 创建/补种/自动重播是否消耗种子（false = 不消耗，直接满种）
+    consume-seed: true
+    # 生长界面是否随阶段切换图标（true = 前期种子图标、后期成品图标；false = 始终成品图标）
+    show-stage-change: true
+    # 从该生长阶段（0-7）起展示 product-material 图标（此前展示 seed-material）；仅 show-stage-change=true 时生效
+    show-product-stage: 3
+  beetroot:
+    icon: BEETROOT
+    seed-material: BEETROOT_SEEDS
+    product-material: BEETROOT
+    name: "甜菜根"
+    farm-name: "甜菜根农田"
+    grow-min-hour: 1
+    grow-max-hour: 3
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  carrot:
+    icon: CARROT
+    seed-material: CARROT
+    product-material: CARROT
+    name: "胡萝卜"
+    farm-name: "胡萝卜农田"
+    grow-min-hour: 1
+    grow-max-hour: 3
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  potato:
+    icon: POTATO
+    seed-material: POTATO
+    product-material: POTATO
+    name: "马铃薯"
+    farm-name: "马铃薯农田"
+    grow-min-hour: 1
+    grow-max-hour: 3
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  melon:
+    icon: MELON
+    seed-material: MELON_SEEDS
+    product-material: MELON
+    name: "甜瓜"
+    farm-name: "甜瓜农田"
+    grow-min-hour: 2
+    grow-max-hour: 4
+    consume-seed: true
+    show-stage-change: true
+    show-product-stage: 3
+  pumpkin:
+    icon: PUMPKIN
+    seed-material: PUMPKIN_SEEDS
+    product-material: PUMPKIN
+    name: "南瓜"
+    farm-name: "南瓜农田"
+    grow-min-hour: 2
+    grow-max-hour: 4
+    consume-seed: true
+    show-stage-change: true
+    show-product-stage: 3
+  bamboo:
+    icon: BAMBOO
+    seed-material: BAMBOO
+    product-material: BAMBOO
+    name: "竹子"
+    farm-name: "竹子农田"
+    grow-min-hour: 1
+    grow-max-hour: 2
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  cocoa:
+    icon: COCOA_BEANS
+    seed-material: COCOA_BEANS
+    product-material: COCOA_BEANS
+    name: "可可豆"
+    farm-name: "可可豆农田"
+    grow-min-hour: 1
+    grow-max-hour: 3
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  sugarcane:
+    icon: SUGAR_CANE
+    seed-material: SUGAR_CANE
+    product-material: SUGAR_CANE
+    name: "甘蔗"
+    farm-name: "甘蔗农田"
+    grow-min-hour: 1
+    grow-max-hour: 2
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  cactus:
+    icon: CACTUS
+    seed-material: CACTUS
+    product-material: CACTUS
+    name: "仙人掌"
+    farm-name: "仙人掌农田"
+    grow-min-hour: 1
+    grow-max-hour: 3
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  mushroom:
+    icon: BROWN_MUSHROOM
+    seed-material: BROWN_MUSHROOM
+    product-material: BROWN_MUSHROOM
+    name: "蘑菇"
+    farm-name: "蘑菇农田"
+    grow-min-hour: 1
+    grow-max-hour: 3
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  kelp:
+    icon: KELP
+    seed-material: KELP
+    product-material: KELP
+    name: "海带"
+    farm-name: "海带农田"
+    grow-min-hour: 1
+    grow-max-hour: 3
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  sea_pickle:
+    icon: SEA_PICKLE
+    seed-material: SEA_PICKLE
+    product-material: SEA_PICKLE
+    name: "海泡菜"
+    farm-name: "海泡菜农田"
+    grow-min-hour: 1
+    grow-max-hour: 2
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  glow_berries:
+    icon: GLOW_BERRIES
+    seed-material: GLOW_BERRIES
+    product-material: GLOW_BERRIES
+    name: "发光浆果"
+    farm-name: "发光浆果农田"
+    grow-min-hour: 1
+    grow-max-hour: 2
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  nether_wart:
+    icon: NETHER_WART
+    seed-material: NETHER_WART
+    product-material: NETHER_WART
+    name: "下界疣"
+    farm-name: "下界疣农田"
+    grow-min-hour: 1
+    grow-max-hour: 2
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  crimson_fungus:
+    icon: CRIMSON_FUNGUS
+    seed-material: CRIMSON_FUNGUS
+    product-material: CRIMSON_FUNGUS
+    name: "绯红菌"
+    farm-name: "绯红菌农田"
+    grow-min-hour: 1
+    grow-max-hour: 2
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  warped_fungus:
+    icon: WARPED_FUNGUS
+    seed-material: WARPED_FUNGUS
+    product-material: WARPED_FUNGUS
+    name: "扭曲菌"
+    farm-name: "扭曲菌农田"
+    grow-min-hour: 1
+    grow-max-hour: 2
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  chorus_flower:
+    icon: CHORUS_FLOWER
+    seed-material: CHORUS_FLOWER
+    product-material: CHORUS_FLOWER
+    name: "歌莱花"
+    farm-name: "歌莱花农田"
+    grow-min-hour: 2
+    grow-max-hour: 4
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+  apple:
+    icon: APPLE
+    seed-material: APPLE
+    product-material: APPLE
+    name: "苹果"
+    farm-name: "苹果农田"
+    grow-min-hour: 2
+    grow-max-hour: 4
+    consume-seed: true
+    show-stage-change: false
+    show-product-stage: 3
+
+# ============================================================
+# 语言文本
+message:
+  crop-created: "&a成功创建 &f%farmname% &a（第 %page% 页 · 第 %slot% 格）！已种植 %replant% 格。"
+  farm-full: "&c所有农田页已满，无法继续创建农田！"
+  farm-limit: "&c你最多只能拥有 %max% 块农田！"
+  page-locked: "&c当前页 %page-slots% 格农田已满后才能进入下一页！"
+  no-seed: "&c%seedname%不足（种子仓库 + 背包均不够）！"
+  replant-done: "&a已补种 %count% 格，消耗 %seed% 粒%seedname%。"
+  replant-empty: "&e该农田没有需要补种的格子。"
+  take-success: "&a已取出 %qty% 个到背包。"
+  inv-full: "&c背包已满，无法取出物品！"
+  no-backup: "&c后备库存为空，无需填充。"
+  no-perm: "&c你没有权限使用该功能。"
+  bonemeal-next-locked: "&c下一页尚未解锁，请先在第 1 页点击升级按钮解锁！"
+  bonemeal-unlock-success: "&a已花费 %cost% 金币解锁下一页！"
+  bonemeal-unlock-fail-money: "&c金币不足，解锁需要 %cost% 金币！"
+  no-economy: "&c未安装 Vault 经济插件，无法使用金币功能。"
+  bonemeal-add: "&a已存入 %qty% 个骨粉。"
+  bonemeal-take: "&a已取出 %qty% 个骨粉。"
+  bonemeal-max: "&e已解锁到当前最高页。"
+  farm-upgraded: "&a农田已升级到 Lv.%level%（消耗 %cost% 金币）！"
+  farm-max-level: "&c农田已达到最高等级（Lv.%max-level%）！"
+  farm-upgrade-no-money: "&c金币不足，升级需要 %cost% 金币！"
+  gufen-update-done: "&a已为玩家 %player% 增加 %count% 页骨粉解锁（当前共 %total% 页）。"
+  player-not-found: "&c找不到玩家 %player%。"
+  db-error: "&c数据库操作失败，请稍后重试。"
+  bonemeal-fast-toggled: "&a骨粉加速已%state%（仅自动重播生效）。"
+  farm-delete-confirm: "&e你确定要删除这个农田吗？如果确定，请输入 &a删除 &e；否则请输入 &c取消 &e。"
+  farm-delete-done: "&a该农田已删除。"
+  farm-delete-cancelled: "&e已取消删除该农田。"
+  farm-delete-hint: "&e请输入 &a删除 &e确认，或 &c取消 &e放弃。"
+  # /xlr help 多行帮助（List 格式，& 为颜色代码，可随意增删行）
+  help:
+    - "&6========== XLRGuiCrop 帮助 =========="
+    - "&e/xlr crop menu &7- 打开主菜单"
+    - "&e/xlr crop farm &7- 打开农田（查看 / 生长 / 管理）"
+    - "&e/xlr crop create [作物id] &7- 打开创建界面或直接创建（消耗种子，几颗种几格）"
+    - "&e/xlr crop gui &7- 打开农作物仓库（查看 / 取出产物与种子）"
+    - "&e/xlr crop bone &7- 打开骨粉储存器（存入 / 取出 / 金币解锁页数）"
+    - "&e/xlr crop update bone <玩家ID> <页数> &7- 管理员叠加解锁骨粉页"
+    - "&e/xlr crop comp [list|replay <id>|done <id>] &7- 管理员处理补偿台账"
+    - "&e/xlr help &7- 显示本帮助"
+    - "&7玩法：创建农田后作物自动生长，成熟自动收割入仓库；"
+    - "&7农田可金币升级提高产量，可开启骨粉加速缩短生长时长；"
+    - "&7创建农田消耗对应作物种子，补种与自动重播也从种子仓库扣除。"
