@@ -7,6 +7,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import xlingran.com.Shan;
 import xlingran.com.config.ConfigManager;
 import xlingran.com.crop.CropManager;
 import xlingran.com.crop.CropRegistry;
@@ -33,11 +34,13 @@ import java.util.UUID;
  */
 public final class CommandManager implements CommandExecutor, TabCompleter {
 
+    private final Shan plugin;
     private final DatabaseManager db;
     private final GuiManager gui;
     private final CropManager cropManager;
 
-    public CommandManager(DatabaseManager db, GuiManager gui, CropManager cropManager) {
+    public CommandManager(Shan plugin, DatabaseManager db, GuiManager gui, CropManager cropManager) {
+        this.plugin = plugin;
         this.db = db;
         this.gui = gui;
         this.cropManager = cropManager;
@@ -133,7 +136,21 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                     player.sendMessage(line);
                 }
             }
-            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp|help]");
+            case "reload" -> {
+                // 重载配置文件（config.yml + gui.yml），权限 xlr.crop.reload（默认 op）
+                if (!player.hasPermission("xlr.crop.reload")) {
+                    player.sendMessage(ConfigManager.MSG_NO_PERM);
+                    return;
+                }
+                try {
+                    plugin.reloadConfig();
+                    player.sendMessage("§a配置已重载（config.yml + gui.yml）。");
+                } catch (Exception ex) {
+                    player.sendMessage("§c配置重载失败: " + ex.getMessage());
+                    plugin.getLogger().warning("reload 失败: " + ex);
+                }
+            }
+            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp|help|reload]");
         }
     }
 
@@ -281,7 +298,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         }
         if ("crop".equalsIgnoreCase(args[0])) {
             if (args.length == 2) {
-                return filter(List.of("create", "farm", "gui", "bone", "menu", "update", "comp", "help"), args[1]);
+                return filter(List.of("create", "farm", "gui", "bone", "menu", "update", "comp", "help", "reload"), args[1]);
             }
             if (args.length == 3 && "create".equalsIgnoreCase(args[1])) {
                 // 创建指令只接受英文作物 id

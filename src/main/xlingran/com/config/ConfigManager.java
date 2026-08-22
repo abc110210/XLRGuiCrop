@@ -199,6 +199,7 @@ public final class ConfigManager {
             "§e/xlr crop bone §7- 打开骨粉储存器（存入 / 取出 / 金币解锁页数）",
             "§e/xlr crop update bone <玩家ID> <页数> §7- 管理员叠加解锁骨粉页",
             "§e/xlr crop comp [list|replay <id>|done <id>] §7- 管理员处理补偿台账",
+            "§e/xlr crop reload §7- 重载配置文件（管理员）",
             "§e/xlr crop help §7- 显示本帮助",
             "§7玩法：创建农田后作物自动生长，成熟自动收割入仓库；",
             "§7农田可金币升级提高产量，可开启骨粉加速缩短生长时长；",

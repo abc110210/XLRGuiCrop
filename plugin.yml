@@ -11,7 +11,7 @@ softdepend: [Vault]
 commands:
   xlr:
     description: XLRGuiCrop 主命令
-    usage: /xlr crop [create|farm|gui|bone|menu|update|comp|help]
+    usage: /xlr crop [create|farm|gui|bone|menu|update|comp|help|reload]
     aliases: []
 
 # 权限
@@ -39,4 +39,7 @@ permissions:
     default: false
   xlr.crop.comp:
     description: 查看/重放/确认补偿台账（/xlr crop comp）
+    default: op
+  xlr.crop.reload:
+    description: 重载插件配置文件（/xlr crop reload）
     default: op

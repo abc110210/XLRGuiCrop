@@ -51,7 +51,7 @@ public final class Shan extends JavaPlugin {
         gui.setCropManager(cropManager);
 
         // 6. 指令
-        CommandManager commandManager = new CommandManager(db, gui, cropManager);
+        CommandManager commandManager = new CommandManager(this, db, gui, cropManager);
         if (getCommand("xlr") != null) {
             getCommand("xlr").setExecutor(commandManager);
             getCommand("xlr").setTabCompleter(commandManager);
@@ -151,5 +151,19 @@ public final class Shan extends JavaPlugin {
         for (DatabaseManager.CompensationRecord c : db.getCompensations("PENDING", 100)) {
             db.replayCompensation(c.id);
         }
+    }
+
+    /**
+     * 重载配置文件（config.yml + gui.yml）：重新 apply 配置并注册作物；
+     * 若定时结算间隔变化则重启定时器。DB 与已打开的 GUI 不受影响（下次打开生效）。
+     * 配置语法/槽位冲突等异常向上抛出，由调用方提示玩家。
+     */
+    public void reloadConfig() {
+        ConfigLoader.load(this);
+        if (cropManager != null) {
+            cropManager.stop();
+            cropManager.start();
+        }
+        getLogger().info("XLRGuiCrop 配置已重载。");
     }
 }
