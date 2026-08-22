@@ -107,7 +107,7 @@ Farmplot:
         material: "%item%"
         name: "生长中 LV.%stage%"
         Lore:
-            - "[%bar%]"
+            - "%bar%"
             - "阶段: %currentstage% / %maxstage%"
             - "剩余 %time%"
     # 已成熟
