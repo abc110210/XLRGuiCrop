@@ -11,7 +11,7 @@ softdepend: [Vault]
 commands:
   xlr:
     description: XLRGuiCrop 主命令
-    usage: /xlr [help|crop [create|farm|gui|bone|menu|update|comp]]
+    usage: /xlr crop [create|farm|gui|bone|menu|update|comp|help]
     aliases: []
 
 # 权限

@@ -50,19 +50,13 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length == 0) {
-            player.sendMessage("§e输入 /xlr help 查看 XLRGuiCrop 帮助。");
-            return true;
-        }
-        if ("help".equalsIgnoreCase(args[0]) || "-h".equalsIgnoreCase(args[0]) || "--help".equalsIgnoreCase(args[0])) {
-            for (String line : ConfigManager.MSG_HELP) {
-                player.sendMessage(line);
-            }
+            player.sendMessage("§e输入 /xlr crop help 查看 XLRGuiCrop 帮助。");
             return true;
         }
         UUID uuid = player.getUniqueId();
         // 仅保留 /xlr crop 前缀（旧 /xlr farm 等已删除）
         if (!"crop".equalsIgnoreCase(args[0])) {
-            player.sendMessage("§c未知子指令，用法: /xlr crop [create|farm|gui|bone|menu|update]");
+            player.sendMessage("§c未知子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp|help]");
             return true;
         }
         handleCrop(player, uuid, args);
@@ -133,7 +127,13 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 }
                 handleComp(player, args);
             }
-            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp]");
+            case "help" -> {
+                // 多行帮助（config.yml message.help 可自定义）
+                for (String line : ConfigManager.MSG_HELP) {
+                    player.sendMessage(line);
+                }
+            }
+            default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp|help]");
         }
     }
 

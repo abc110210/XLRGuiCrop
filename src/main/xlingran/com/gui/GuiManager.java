@@ -394,13 +394,11 @@ public final class GuiManager implements Listener {
     private void renderCreateCrop(Inventory inv) {
         ItemStack[] contents = new ItemStack[54];
         Arrays.fill(contents, frame());
-        int slot = ConfigManager.CREATE_CROP_START_SLOT;
-        for (CropType ct : CropRegistry.all().values()) {
-            if (slot >= 54) {
-                break;
-            }
-            contents[slot] = createEntry(ct);
-            slot++;
+        // 只按内部 28 格顺序填充（第2~5行第2~8列），不占外圈黑玻璃；
+        // 顺序与 handleCreateCropClick 的 rawToLocal 映射一致（local i ↔ INNER_SLOTS[i]）
+        List<CropType> crops = new ArrayList<>(CropRegistry.all().values());
+        for (int i = 0; i < crops.size() && i < INNER_SLOTS.length; i++) {
+            contents[INNER_SLOTS[i]] = createEntry(crops.get(i));
         }
         inv.setContents(contents);
     }
@@ -408,7 +406,8 @@ public final class GuiManager implements Listener {
     private void renderCropMenu(Inventory inv, GuiHolder h) {
         ItemStack[] contents = new ItemStack[54];
         Arrays.fill(contents, frame());
-        // 按作物动态生成入口：每作物 2 格（种子仓库在前、产物仓库在后），从内部 28 格顺序填充
+        // 按作物动态生成入口：每作物 2 格（种子仓库在前、产物仓库在后），从内部 28 格顺序填充；
+        // 条目配置共用 gui.yml CropStorage 段，材质/名称/Lore 支持 %icon%/%name%/%Farmitem% 变量（作物过多不逐一写死）
         List<CropType> crops = new ArrayList<>(CropRegistry.all().values());
         int entries = crops.size() * 2;
         int start = h.getPage() * ConfigManager.WAREHOUSE_PAGE_SLOTS;
@@ -416,12 +415,15 @@ public final class GuiManager implements Listener {
         for (int i = start; i < Math.min(entries, start + ConfigManager.WAREHOUSE_PAGE_SLOTS); i++) {
             CropType ct = crops.get(i / 2);
             boolean seed = i % 2 == 0;
+            Material mat = seed ? ct.getSeedMaterial() : ct.getProductMaterial();
             String entryName = "§6" + ct.getName() + (seed ? "种子仓库" : "仓库");
-            contents[INNER_SLOTS[local++]] = guiItem(seed ? "Crop.WheatSeed" : "Crop.Wheat",
-                    seed ? ct.getSeedMaterial() : ct.getProductMaterial(),
+            contents[INNER_SLOTS[local++]] = guiItem("CropStorage",
+                    mat,
                     entryName,
                     List.of("§7点击查看" + ct.getName() + (seed ? "种子" : "") + "库存"),
-                    "%Farmitem%", ct.getName());
+                    "%Farmitem%", ct.getName(),
+                    "%icon%", mat.name(),
+                    "%name%", ct.getName());
         }
         // 导航同格：有下一页显示下一页，否则显示上一页（末页无按钮）
         boolean hasMore = entries > (h.getPage() + 1) * ConfigManager.WAREHOUSE_PAGE_SLOTS;
@@ -1081,7 +1083,7 @@ public final class GuiManager implements Listener {
      */
     private ItemStack guiItem(String key, Material fallbackMat, String fallbackName, List<String> fallbackLore, String... kv) {
         GuiItemConfig c = ConfigManager.GUI_ITEMS.get(key);
-        Material mat = (c == null || c.getMaterial() == null) ? fallbackMat : c.getMaterial();
+        Material mat = resolveMaterial(c, fallbackMat, kv);
         String name = (c == null || c.getName() == null || c.getName().isBlank()) ? fallbackName : c.getName();
         List<String> lore = new ArrayList<>(c != null && c.getLore() != null && !c.getLore().isEmpty()
                 ? c.getLore() : fallbackLore);
@@ -1103,6 +1105,29 @@ public final class GuiManager implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    /**
+     * 解析条目材质：gui.yml 的 material 支持固定材质名或 %占位符%（如 %icon%/%item%，
+     * 从 kv 中取对应值再 Material.matchMaterial）；空值/非法回退 fallback。
+     */
+    private Material resolveMaterial(GuiItemConfig c, Material fallback, String... kv) {
+        String raw = c == null ? null : c.getRawMaterial();
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        raw = raw.trim();
+        if (raw.length() > 2 && raw.startsWith("%") && raw.endsWith("%")) {
+            for (int i = 0; i + 1 < kv.length; i += 2) {
+                if (raw.equalsIgnoreCase(kv[i])) {
+                    Material m = Material.matchMaterial(kv[i + 1]);
+                    return m != null ? m : fallback;
+                }
+            }
+            return fallback;
+        }
+        Material m = Material.matchMaterial(raw);
+        return m != null ? m : fallback;
     }
 
     /** 将原始槽位映射回内部 28 格 local 索引，非内部格返回 -1。 */
@@ -1172,16 +1197,21 @@ public final class GuiManager implements Listener {
                     "%level%", String.valueOf(level));
         }
         int cost = ConfigManager.getFarmUpgradeCost(cropId, level + 1);
-        // 下一级产量以 FarmUpdate 为准（%lore% 占位），未配置回退基础产量
+        // 下一级产量以 FarmUpdate 为准（%lore% 占位），未配置回退基础产量；
+        // 无种子作物（SeedDrop=0）不显示种子产量
         int[] d2 = ConfigManager.getFarmDrop(cropId, level + 1);
-        String lvNext = d2 != null
-                ? "§7Lv." + (level + 1) + " 产量：" + d2[0] + " " + cropName + " + " + d2[1] + " 种子"
-                : "§7Lv." + (level + 1) + " 产量：" + (baseProduct + 1) + " " + cropName + " + " + baseSeed + " 种子";
+        int lvNextProd = d2 != null ? d2[0] : baseProduct + 1;
+        int lvNextSeed = d2 != null ? d2[1] : baseSeed;
+        String lvNext = "§7Lv." + (level + 1) + " 产量：" + lvNextProd + " " + cropName
+                + (lvNextSeed > 0 ? " + " + lvNextSeed + " 种子" : "");
+        String lv2 = "§7Lv.2 产量：" + (baseProduct + 1) + " " + cropName
+                + (baseSeed > 0 ? " + " + baseSeed + " 种子" : "");
+        String lv3 = "§7Lv.3 产量：" + (baseProduct + 2) + " " + cropName
+                + (baseSeed > 0 ? " + " + baseSeed + " 种子" : "");
         return guiItem("Farmmanage.Update", Material.HOPPER, "§a农田升级",
                 List.of("§7当前 Lv." + level,
                         "§7升级到 Lv." + (level + 1) + " 需 " + cost + " 金币",
-                        "§7Lv.2 产量：" + (baseProduct + 1) + " " + cropName + " + " + baseSeed + " 种子",
-                        "§7Lv.3 产量：" + (baseProduct + 2) + " " + cropName + " + " + baseSeed + " 种子"),
+                        lv2, lv3),
                 "%level%", String.valueOf(level),
                 "%money%", String.valueOf(cost),
                 "%lore%", lvNext);
@@ -1225,13 +1255,13 @@ public final class GuiManager implements Listener {
             return null; // 空槽直接留空
         }
         if (p.stage >= 7) {
-            // 成熟产量按农田当前等级展示（与实际收割一致）
+            // 成熟产量按农田当前等级展示（与实际收割一致）；无种子作物（SeedDrop=0）不显示种子
             int[] drop = ConfigManager.getFarmDrop(ct.getId(), level);
             int prod = drop != null ? drop[0] : ct.getYieldProduct();
             int seed = drop != null ? drop[1] : ct.getYieldSeed();
             return guiItem("Farmplot.CropMature", ct.getProductMaterial(), "§e已成熟",
                     List.of("§7等待自动收割…",
-                            "§7产量：" + ct.getName() + "+" + prod + " · 种子+" + seed),
+                            "§7产量：" + ct.getName() + "+" + prod + (seed > 0 ? " · 种子+" + seed : "")),
                     "%item%", ct.getProductMaterial().name());
         }
         // 按作物配置：true 分阶段变化显示（到 show-product-stage 前展示种子图标、之后展示成品图标），false 始终显示成品图标

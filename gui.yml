@@ -222,37 +222,38 @@ FarmUpdate:
     carrot:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 胡萝卜 + 1 种子"
+            # 胡萝卜没有独立种子，不产种子（SeedDrop: 0）
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 胡萝卜"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 胡萝卜 + 2种子"
+            Lore: "LV2 产量: 2 胡萝卜"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 胡萝卜 + 2种子"
+            Lore: "LV3 产量: 3 胡萝卜"
     potato:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 马铃薯 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 马铃薯"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 马铃薯 + 2种子"
+            Lore: "LV2 产量: 2 马铃薯"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 马铃薯 + 2种子"
+            Lore: "LV3 产量: 3 马铃薯"
     melon:
         LV1:
             Drop: 1
@@ -290,224 +291,224 @@ FarmUpdate:
     bamboo:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 竹子 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 竹子"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 竹子 + 2种子"
+            Lore: "LV2 产量: 2 竹子"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 竹子 + 2种子"
+            Lore: "LV3 产量: 3 竹子"
     cocoa:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 可可豆 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 可可豆"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 可可豆 + 2种子"
+            Lore: "LV2 产量: 2 可可豆"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 可可豆 + 2种子"
+            Lore: "LV3 产量: 3 可可豆"
     sugarcane:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 甘蔗 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 甘蔗"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 甘蔗 + 2种子"
+            Lore: "LV2 产量: 2 甘蔗"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 甘蔗 + 2种子"
+            Lore: "LV3 产量: 3 甘蔗"
     cactus:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 仙人掌 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 仙人掌"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 仙人掌 + 2种子"
+            Lore: "LV2 产量: 2 仙人掌"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 仙人掌 + 2种子"
+            Lore: "LV3 产量: 3 仙人掌"
     mushroom:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 蘑菇 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 蘑菇"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 蘑菇 + 2种子"
+            Lore: "LV2 产量: 2 蘑菇"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 蘑菇 + 2种子"
+            Lore: "LV3 产量: 3 蘑菇"
     kelp:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 海带 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 海带"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 海带 + 2种子"
+            Lore: "LV2 产量: 2 海带"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 海带 + 2种子"
+            Lore: "LV3 产量: 3 海带"
     sea_pickle:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 海泡菜 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 海泡菜"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 海泡菜 + 2种子"
+            Lore: "LV2 产量: 2 海泡菜"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 海泡菜 + 2种子"
+            Lore: "LV3 产量: 3 海泡菜"
     glow_berries:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 发光浆果 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 发光浆果"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 发光浆果 + 2种子"
+            Lore: "LV2 产量: 2 发光浆果"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 发光浆果 + 2种子"
+            Lore: "LV3 产量: 3 发光浆果"
     nether_wart:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 下界疣 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 下界疣"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 下界疣 + 2种子"
+            Lore: "LV2 产量: 2 下界疣"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 下界疣 + 2种子"
+            Lore: "LV3 产量: 3 下界疣"
     crimson_fungus:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 绯红菌 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 绯红菌"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 绯红菌 + 2种子"
+            Lore: "LV2 产量: 2 绯红菌"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 绯红菌 + 2种子"
+            Lore: "LV3 产量: 3 绯红菌"
     warped_fungus:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 扭曲菌 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 扭曲菌"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 扭曲菌 + 2种子"
+            Lore: "LV2 产量: 2 扭曲菌"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 扭曲菌 + 2种子"
+            Lore: "LV3 产量: 3 扭曲菌"
     chorus_flower:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 歌莱花 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 歌莱花"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 歌莱花 + 2种子"
+            Lore: "LV2 产量: 2 歌莱花"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 歌莱花 + 2种子"
+            Lore: "LV3 产量: 3 歌莱花"
     apple:
         LV1:
             Drop: 1
-            SeedDrop: 1
-            Lore: "LV1 产量: 1 苹果 + 1 种子"
+            SeedDrop: 0
+            Lore: "LV1 产量: 1 苹果"
         LV2:
             Drop: 2
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 10
-            Lore: "LV2 产量: 2 苹果 + 2种子"
+            Lore: "LV2 产量: 2 苹果"
         LV3:
             Drop: 3
-            SeedDrop: 2
+            SeedDrop: 0
             Money: 1000
             TimeReduction: 20
-            Lore: "LV3 产量: 3 苹果 + 2种子"
+            Lore: "LV3 产量: 3 苹果"
 
 # ================= 骨粉储存 Gui =================
 Bone:
@@ -556,18 +557,11 @@ Crop:
         Lore:
             - ""
     # 作物仓库入口（后续新增作物按 {CropId}Seed / {CropId} 约定扩展）
-    WheatSeed:
-        material: WHEAT_SEEDS
-        slot: 10
-        name: "&6小麦种子仓库"
+    CropStorage:
+        material: %icon%
+        name: ""
         Lore:
-            - ""
-    Wheat:
-        material: WHEAT
-        slot: 11
-        name: "&6小麦仓库"
-        Lore:
-            - ""
+            - "&a点击进入 %name% 仓库"
     # 翻页（同格：第 1 页下一页 / 第 2 页上一页）
     Nextpage:
         material: ARROW
@@ -582,9 +576,16 @@ Crop:
         Lore:
             - ""
 
-# ================= 对应作物仓库 Gui =================
+# ================= 农作物仓库入口 / 作物仓库 Gui（共用 CropStorage 段） =================
+# 本段顶级同时作为「农作物仓库」每作物的入口条目（作物过多不逐一写死，用变量渲染）：
+#   material 支持 %icon%（种子入口=该作物种子材质、产物入口=该作物产物材质）
+#   Lore     支持 %name%（作物名）与 %Farmitem%
+#   name 同时是「作物仓库」GUI 标题（%Farmitem% = 作物名；留空回退默认「仓库」）
 CropStorage:
-    name: "%Farmitem%"
+    material: "%icon%"
+    name: ""
+    Lore:
+        - "&a点击进入 %name% 仓库"
     Fill:
         material: BLACK_STAINED_GLASS_PANE
         name: ""

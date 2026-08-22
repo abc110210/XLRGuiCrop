@@ -199,7 +199,7 @@ public final class ConfigManager {
             "§e/xlr crop bone §7- 打开骨粉储存器（存入 / 取出 / 金币解锁页数）",
             "§e/xlr crop update bone <玩家ID> <页数> §7- 管理员叠加解锁骨粉页",
             "§e/xlr crop comp [list|replay <id>|done <id>] §7- 管理员处理补偿台账",
-            "§e/xlr help §7- 显示本帮助",
+            "§e/xlr crop help §7- 显示本帮助",
             "§7玩法：创建农田后作物自动生长，成熟自动收割入仓库；",
             "§7农田可金币升级提高产量，可开启骨粉加速缩短生长时长；",
             "§7创建农田消耗对应作物种子，补种与自动重播也从种子仓库扣除。");
@@ -311,6 +311,7 @@ public final class ConfigManager {
         loadGuiItem(gui, "Crop.Wheat");
         loadGuiItem(gui, "Crop.Nextpage");
         loadGuiItem(gui, "Crop.Prvepage");
+        loadGuiItem(gui, "CropStorage");
         loadGuiItem(gui, "CropStorage.Restock");
         loadGuiItem(gui, "CropStorage.Back");
 
@@ -423,15 +424,15 @@ public final class ConfigManager {
         if (c == null) {
             return;
         }
-        // 过滤空行 Lore（如 gui.yml 占位的 `- ""`），否则会覆盖代码默认文案
+        // 过滤空行 Lore（如 gui.yml 占位的 `- ""`），否则会覆盖代码默认文案；& → § 颜色转换
         List<String> lore = new ArrayList<>();
         for (String s : c.getStringList("Lore")) {
             if (s != null && !s.isBlank()) {
-                lore.add(s);
+                lore.add(s.replace('&', '§'));
             }
         }
         GUI_ITEMS.put(path, new GuiItemConfig(
-                material(c, "material", null),
+                c.getString("material"),   // 原始材质字符串，可为空/固定材质名/%icon% 等占位符（渲染时解析）
                 c.getInt("slot", -1),
                 color(c, "name", ""),
                 lore));
