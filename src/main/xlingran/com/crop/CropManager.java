@@ -219,6 +219,51 @@ public final class CropManager {
         }
     }
 
+    /**
+     * 退还一次消耗中「非整份 seedCost」多扣的余量（如 replant-cost-seed>1 或 seedCost×cycles 部分成功时）。
+     * 背包优先退回，放不下转存对应素材仓库；绝不丢失（转存也失败则记补偿台账）。
+     */
+    private void refundExcess(Player player, UUID uuid, CropType ct, SeedConsumption c, int excess) {
+        if (excess <= 0) {
+            return;
+        }
+        int remain = excess;
+        for (SeedPart sp : c.parts) {
+            if (remain <= 0) {
+                break;
+            }
+            // 先退背包部分（玩家可见），放不下转仓库
+            int back = Math.min(remain, sp.backpack);
+            if (back > 0) {
+                int notRefunded = 0;
+                if (player != null) {
+                    HashMap<Integer, ItemStack> leftover = player.getInventory()
+                            .addItem(new ItemStack(sp.material, back));
+                    notRefunded = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
+                } else {
+                    notRefunded = back;
+                }
+                if (notRefunded > 0) {
+                    if (!db.addCropStock(uuid, ct.getId(), sp.material.name(), notRefunded)) {
+                        db.addCompensation(uuid, "SEED", ct.getId(), sp.material.name(), notRefunded, "replant-excess-refund");
+                    }
+                }
+                remain -= back;
+            }
+            if (remain <= 0) {
+                break;
+            }
+            // 再退仓库部分
+            int wh = Math.min(remain, sp.warehouse);
+            if (wh > 0) {
+                if (!db.addCropStock(uuid, ct.getId(), sp.material.name(), wh)) {
+                    db.addCompensation(uuid, "SEED", ct.getId(), sp.material.name(), wh, "replant-excess-refund-warehouse");
+                }
+                remain -= wh;
+            }
+        }
+    }
+
     // ================= 创建农田 =================
 
     /**
@@ -455,6 +500,8 @@ public final class CropManager {
             return false;
         }
         int level = db.getFarmLevel(uuid, fs);
+        // 每田一次的只读状态提到循环外（避免 54 格逐格重复查 DB）
+        boolean bonemealFast = db.getFarmBonemealFast(uuid, fs);
         // 每级产量以 gui.yml FarmUpdate.<作物>.LV<等级>.Drop / SeedDrop 为准；未配置回退基础产量
         int[] drop = ConfigManager.getFarmDrop(ct.getId(), level);
         long productYield = drop != null ? drop[0] : (long) ct.getYieldProduct() + Math.max(0, level - 1);
@@ -488,20 +535,44 @@ public final class CropManager {
                 plugin.getLogger().warning("多周期补算封顶 100 万周期: uuid=" + uuid + " farmSlot=" + fs);
             }
             int cycles = (int) cyclesL;
-            productGain += productYield * cycles;
-            seedGain += seedYield * cycles;
-            // 重播下一周期：消耗 1 粒种子素材（仓库→背包，多素材按序），不足则留空；不消耗种子的作物直接重播
+            // 重播消耗（与在线逐周期等价）：收获 N 周期 = N 次重播（前 N-1 次支撑后续周期、第 N 次让格子继续生长）。
+            // 一次性预扣 seedCost×cycles，按实际扣到的整份数决定可收获周期数；非整份余量立即退还（防「扣了没种」蒸发）。
             int seedCost = ct.isConsumeSeed() ? ConfigManager.REPLANT_COST_SEED : 0;
-            SeedConsumption c = new SeedConsumption(new ArrayList<>(), 0);
+            int supported; // 本次预扣能支撑的重播份数
             if (seedCost > 0) {
-                c = consumeSeeds(player, uuid, ct, seedCost, true);
-                for (SeedPart sp : c.parts) {
-                    int[] a = consumedMap.computeIfAbsent(sp.material, k -> new int[2]);
-                    a[0] += sp.warehouse;
-                    a[1] += sp.backpack;
+                // 防溢出：seedCost×cycles 先按 long 计算并钳制（极端配置下不追求一次扣完）
+                int need = (int) Math.min(1_000_000L, (long) seedCost * cycles);
+                SeedConsumption c = consumeSeeds(player, uuid, ct, need, true);
+                supported = c.total / seedCost;
+                int used = supported * seedCost;
+                if (c.total > used) {
+                    // 多扣的余量（不足整份 seedCost）立即退还，绝不蒸发
+                    refundExcess(player, uuid, ct, c, c.total - used);
                 }
+                // 只把「实际用于重播」的部分并入回滚账本（落库失败时统一退还）
+                int remainUsed = used;
+                for (SeedPart sp : c.parts) {
+                    if (remainUsed <= 0) {
+                        break;
+                    }
+                    int wh = Math.min(remainUsed, sp.warehouse);
+                    int bk = Math.min(remainUsed - wh, sp.backpack);
+                    if (wh + bk > 0) {
+                        int[] a = consumedMap.computeIfAbsent(sp.material, k -> new int[2]);
+                        a[0] += wh;
+                        a[1] += bk;
+                        remainUsed -= wh + bk;
+                    }
+                }
+            } else {
+                supported = cycles; // 不消耗种子的作物：直接收获全部周期并重播
             }
-            if (c.total >= seedCost) {
+            // 可收获周期数：第 1 周期用种植时的种子，之后每 1 份重播种子多支撑 1 周期
+            int harvestCycles = Math.min(cycles, 1 + supported);
+            productGain += productYield * harvestCycles;
+            seedGain += seedYield * harvestCycles;
+            // 最后一次收获后重播：种子足够（份数 ≥ 周期数，含最后 1 份）则继续生长，否则槽位留空
+            if (seedCost == 0 || supported >= cycles) {
                 // 保留本周期未完成的剩余时间，继续推进新周期
                 // 防御：duration_sec=0 的异常数据不可取模（除零），按 max(1) 处理
                 long remainder = elapsed % Math.max(1, p.durationSec);
@@ -513,13 +584,15 @@ public final class CropManager {
                 if (reduction > 0) {
                     duration = (int) Math.max(1, duration * (100 - reduction) / 100);
                 }
-                // 骨粉加速：仅当该农田开启「骨粉加速」开关时，消耗骨粉缩短时长（仅自动重播生效）
-                if (db.getFarmBonemealFast(uuid, fs) && db.consumeBonemeal(uuid, ConfigManager.BONEMEAL_FAST_COST) > 0) {
+                // 骨粉加速：仅当该农田开启「骨粉加速」开关时，消耗骨粉缩短时长
+                // （按重播 1 次消耗；离线补算中间周期无重播动作，不额外消耗，与在线逐周期重播等价）
+                if (bonemealFast && db.consumeBonemeal(uuid, ConfigManager.BONEMEAL_FAST_COST) > 0) {
                     consumedBonemeal++;
                     duration = (int) Math.max(1, duration * ConfigManager.BONEMEAL_FAST_FACTOR);
                 }
                 p.durationSec = duration;
             } else {
+                // 收获后无足够种子重播：槽位留空（已收获 harvestCycles 周期）
                 p.stage = STAGE_EMPTY;
                 p.startedAt = 0;
                 p.durationSec = 0;

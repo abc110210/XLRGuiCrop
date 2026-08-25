@@ -147,13 +147,22 @@ public final class Shan extends JavaPlugin {
         return -1;
     }
 
-    /** 启动自动重放 PENDING 补偿台账（入账成功标记 PROCESSED；失败保持 PENDING 待人工）。 */
+    /** 启动自动重放 PENDING 补偿台账（入账成功标记 PROCESSED；失败保持 PENDING 待人工）。分页循环处理全部，避免「只处理前 100 条」遗留。 */
     private void replayCompensations() {
         if (db == null) {
             return;
         }
-        for (DatabaseManager.CompensationRecord c : db.getCompensations("PENDING", 100)) {
-            db.replayCompensation(c.id);
+        int offset = 0;
+        int loops = 0;
+        while (loops++ < 1000) { // 防御上限（10 万条封顶，正常不会达到）
+            List<DatabaseManager.CompensationRecord> batch = db.getCompensations("PENDING", 100, offset);
+            if (batch.isEmpty()) {
+                break;
+            }
+            for (DatabaseManager.CompensationRecord c : batch) {
+                db.replayCompensation(c.id);
+            }
+            offset += batch.size();
         }
     }
 
@@ -162,7 +171,7 @@ public final class Shan extends JavaPlugin {
      * 若定时结算间隔变化则重启定时器。DB 与已打开的 GUI 不受影响（下次打开生效）。
      * 配置语法/槽位冲突等异常向上抛出，由调用方提示玩家。
      */
-    public void reloadConfig() {
+    public void reloadXlrConfig() {
         ConfigLoader.load(this);
         if (cropManager != null) {
             cropManager.stop();

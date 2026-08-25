@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *       农田格左键进生长、右键进管理；第6行第9格「骨粉储存器」入口</li>
  *   <li>二级生长 GUI（54 格）：展示作物生长状态，空槽留空，按作物配置决定是否分阶段显示</li>
  *   <li>农田管理 GUI（3 行）：第2行第2格小麦种子「点击补种」、第2行第4格「农田升级」、
- *       第2行第8格「骨粉加速」拉杆开关、第3行第5格「删除农田」（聊天二次确认）、第3行第1格「返回农田」</li>
+ *       第2行第8格「骨粉加速」拉杆开关、第3行第5格「清空农田」（聊天二次确认，恢复待种植）、第3行第1格「返回农田」</li>
  *   <li>创建农田 GUI（6 行）：从第2行第2格起展示作物，点击创建</li>
  *   <li>农作物仓库 GUI（6 行，共 2 页）：第 1 页小麦/种子仓库入口，第6行第5格导航（第 1 页下一页 / 第 2 页上一页）</li>
  *   <li>骨粉储存器 GUI（多页）：默认解锁第 1 页；第 1 页第6行第5格「升级解锁」、第6行第7格「下一页」；
@@ -112,6 +112,14 @@ public final class GuiManager implements Listener {
         private transient Inventory inventory;
         /** 代码主动切换打开新界面前置位：对应关闭不再触发返回导航（替代 Paper 的 InventoryCloseEvent.Reason）。 */
         private boolean autoSwitch;
+        /** 渲染时的动态条目快照（CREATE_CROP=作物列表 / CROP_MENU=仓库入口列表）：点击用快照而非 reload 后的新注册表，防「点 A 建 B」错位。 */
+        private List<?> entrySnapshot;
+
+        void setEntrySnapshot(List<?> snap) {
+            this.entrySnapshot = snap == null ? null : new ArrayList<>(snap);
+        }
+
+        List<?> getEntrySnapshot() { return entrySnapshot; }
 
         GuiHolder(GuiType type, UUID uuid, int page, int farmSlot, WarehouseResource resource) {
             this(type, uuid, page, farmSlot, resource, -1, false);
@@ -171,7 +179,7 @@ public final class GuiManager implements Listener {
     private final DatabaseManager db;
     private final EconomyManager economy;
     private CropManager cropManager;
-    /** 待确认删除的农田（聊天二次确认，带超时防误删）。 */
+    /** 待确认清空的农田（聊天二次确认，带超时防误清）。 */
     private static final class PendingDelete {
         final int farmSlot;
         final long expireAtSec;
@@ -431,7 +439,7 @@ public final class GuiManager implements Listener {
                 contents[raw] = farmIcon(CropRegistry.get(cropId), db.getFarmLevel(uuid, globalIndex));
             } else if (local < unlocked) {
                 // 绿色：已解锁可种植格（第 1 格为免费种植格）
-                contents[raw] = freeTile(local == 0);
+                contents[raw] = freeTile();
             } else if (unlocked < ConfigManager.FARM_PAGE_SLOTS
                     && local < unlocked + ConfigManager.FARM_UNLOCK_BATCH) {
                 // 黄色：当前待解锁批（付费购买这批）
@@ -482,14 +490,27 @@ public final class GuiManager implements Listener {
         ItemStack[] contents = new ItemStack[54];
         Arrays.fill(contents, frame());
         // 只按内部 28 格顺序填充（第2~5行第2~8列），不占外圈黑玻璃；
-        // 顺序与 handleCreateCropClick 的 rawToLocal 映射一致（local i ↔ INNER_SLOTS[i]）
+        // 起始格取配置 CREATE_CROP_START_SLOT 在内部格中的 local（默认 10 → local 0）
         List<CropType> crops = new ArrayList<>(CropRegistry.all().values());
-        for (int i = 0; i < crops.size() && i < INNER_SLOTS.length; i++) {
-            contents[INNER_SLOTS[i]] = createEntry(crops.get(i));
+        // 缓存渲染时条目快照：reload 后注册表变化也不影响本界面点击（防「点 A 建 B」）
+        h.setEntrySnapshot(crops);
+        int startLocal = createStartLocal();
+        for (int i = 0; i < crops.size() && startLocal + i < INNER_SLOTS.length; i++) {
+            contents[INNER_SLOTS[startLocal + i]] = createEntry(crops.get(i));
         }
         // 返回上一个菜单（第6行第1格，羽毛）
         contents[ConfigManager.FARM_BACK_SLOT] = backFeather("Farm.PrveBack", "§a返回上一个菜单");
         inv.setContents(contents);
+    }
+
+    /** 创建页起始配置槽位对应的内部 local 索引（apply 已校验其为内部格；异常回退 0）。 */
+    private static int createStartLocal() {
+        for (int i = 0; i < INNER_SLOTS.length; i++) {
+            if (INNER_SLOTS[i] == ConfigManager.CREATE_CROP_START_SLOT) {
+                return i;
+            }
+        }
+        return 0;
     }
 
     private void renderCropMenu(Inventory inv, GuiHolder h) {
@@ -499,6 +520,8 @@ public final class GuiManager implements Listener {
         // 无种子作物（土豆/胡萝卜/竹子等，用本体当种子）只 1 格产物仓库，避免出现两个一模一样的东西；
         // 条目配置共用 gui.yml Crop.CropStorage 段，材质/名称/Lore 支持 %icon%/%name%/%Farmitem% 变量
         List<WarehouseResource> entries = cropMenuEntries();
+        // 缓存渲染时条目快照：reload 后注册表变化也不影响本界面点击（防「点 A 进 B 仓库」错位）
+        h.setEntrySnapshot(entries);
         int start = h.getPage() * ConfigManager.WAREHOUSE_PAGE_SLOTS;
         int local = 0;
         for (int i = start; i < Math.min(entries.size(), start + ConfigManager.WAREHOUSE_PAGE_SLOTS); i++) {
@@ -645,8 +668,9 @@ public final class GuiManager implements Listener {
     }
 
     /**
-     * 删除农田二次确认：玩家在聊天栏输入「删除」确认删除，「取消」放弃。
-     * 异步线程仅读取输入与待删标记，实际删库/发消息/打开 GUI 均调度回主线程执行。
+     * 清空农田二次确认：玩家在聊天栏输入「清空」确认清空，「取消」放弃。
+     * 清空即删除该农田槽位与种植数据，农田格恢复为绿色待种植状态（可重新创建）。
+     * 异步线程仅读取输入与待清空标记，实际删库/发消息/打开 GUI 均调度回主线程执行。
      * 超时（{@link ConfigManager#DELETE_CONFIRM_TIMEOUT_SEC}）或掉线均自动作废待确认态。
      */
     @EventHandler
@@ -655,21 +679,21 @@ public final class GuiManager implements Listener {
         UUID uuid = player.getUniqueId();
         PendingDelete pd = pendingDelete.get(uuid);
         if (pd == null) {
-            return; // 无待确认的删除，正常聊天放行
+            return; // 无待确认的清空，正常聊天放行
         }
-        // 超时保护：确认窗口过期则作废，防闲置/掉线后重上线误删
+        // 超时保护：确认窗口过期则作废，防闲置/掉线后重上线误清空
         if (System.currentTimeMillis() / 1000 > pd.expireAtSec) {
             pendingDelete.remove(uuid);
             return;
         }
         String msg = e.getMessage().trim();
-        // 仅对「删除」「取消」取消聊天事件，其余消息一律放行（确认期间玩家仍可正常聊天）
-        if ("删除".equals(msg)) {
+        // 仅对「清空」「取消」取消聊天事件，其余消息一律放行（确认期间玩家仍可正常聊天）
+        if ("清空".equals(msg)) {
             e.setCancelled(true);
             pendingDelete.remove(uuid);
             int farmSlot = pd.farmSlot;
             Bukkit.getScheduler().runTask(plugin, () -> {
-                // 二次校验：确认时农田仍存在才执行删除（防确认期间状态漂移）
+                // 二次校验：确认时农田仍存在才执行清空（防确认期间状态漂移）
                 if (!db.hasFarmSlot(uuid, farmSlot)) {
                     player.sendMessage(ConfigManager.MSG_DELETE_CANCELLED);
                     return;
@@ -687,7 +711,7 @@ public final class GuiManager implements Listener {
             pendingDelete.remove(uuid);
             Bukkit.getScheduler().runTask(plugin, () -> player.sendMessage(ConfigManager.MSG_DELETE_CANCELLED));
         }
-        // 其他内容：放行（正常聊天广播不受影响），确认状态保留至输入 删除/取消、超时或打开任意 GUI
+        // 其他内容：放行（正常聊天广播不受影响），确认状态保留至输入 清空/取消、超时或打开任意 GUI
     }
 
     /** 玩家掉线清理待确认删除态，防重上线聊天误删。 */
@@ -780,7 +804,7 @@ public final class GuiManager implements Listener {
         }
     }
 
-    /** 农田管理：补种 / 升级 / 骨粉加速开关 / 删除农田（聊天二次确认）/ 返回农田。 */
+    /** 农田管理：补种 / 升级 / 骨粉加速开关 / 清空农田（聊天二次确认，恢复待种植）/ 返回农田。 */
     private void handleFarmManageClick(Player player, InventoryClickEvent e, GuiHolder h) {
         if (cropManager == null) {
             return;
@@ -814,7 +838,10 @@ public final class GuiManager implements Listener {
         } else if (raw == ConfigManager.FARM_MANAGE_FAST_SLOT) {
             toggleFarmFast(player, h);
         } else if (raw == ConfigManager.FARM_MANAGE_DELETE_SLOT) {
-            // 关闭 GUI 并进入聊天二次确认（带超时）
+            // 清空农田：关闭 GUI 进入聊天二次确认（带超时），确认后该格恢复为待种植状态。
+            // 必须先置 autoSwitch 标记再 closeInventory：否则 onClose 会把「返回上一个菜单」调度到下一 tick，
+            // openFarm 首行的 pendingDelete.remove() 会清掉刚放入的确认态，导致清空 100% 失效。
+            h.setAutoSwitch(true);
             player.closeInventory();
             pendingDelete.put(h.getUuid(), new PendingDelete(h.getFarmSlot(),
                     System.currentTimeMillis() / 1000 + ConfigManager.DELETE_CONFIRM_TIMEOUT_SEC));
@@ -832,7 +859,7 @@ public final class GuiManager implements Listener {
             return;
         }
         player.sendMessage(ConfigManager.MSG_BONEMEAL_FAST_TOGGLED.replace("%state%", on ? "开启" : "关闭"));
-        scheduleOpen(() -> openFarmManage(player, h.getFarmSlot()));
+        reopenIf(player, GuiType.FARM_MANAGE, () -> openFarmManage(player, h.getFarmSlot()));
     }
 
     /** 主菜单点击分发（槽位可配置，用 if 判断）。 */
@@ -901,7 +928,7 @@ public final class GuiManager implements Listener {
                         + uuid + " opId=" + opId + " cost=" + costText);
             }
         }
-        scheduleOpen(() -> openFarmManage(player, h.getFarmSlot()));
+        reopenIf(player, GuiType.FARM_MANAGE, () -> openFarmManage(player, h.getFarmSlot()));
     }
 
     /** 创建农田 GUI：点击作物条目创建对应农田。 */
@@ -918,12 +945,18 @@ public final class GuiManager implements Listener {
         if (local < 0 || cropManager == null) {
             return;
         }
-        List<CropType> crops = new ArrayList<>(CropRegistry.all().values());
-        if (local >= crops.size()) {
+        // 用渲染时快照（reload 后注册表变化也不错位；快照缺失时回退当前注册表）
+        @SuppressWarnings("unchecked")
+        List<CropType> crops = h.getEntrySnapshot() == null
+                ? new ArrayList<>(CropRegistry.all().values())
+                : (List<CropType>) h.getEntrySnapshot();
+        // 条目索引 = local − 起始偏移（与渲染 createStartLocal 一致）
+        int idx = local - createStartLocal();
+        if (idx < 0 || idx >= crops.size()) {
             return;
         }
         // 在农田页选中的目标格（createSlot）上创建
-        createCrop(player, crops.get(local), h.getCreateSlot());
+        createCrop(player, crops.get(idx), h.getCreateSlot());
     }
 
     private void handleCropMenuClick(Player player, InventoryClickEvent e, GuiHolder h) {
@@ -947,9 +980,12 @@ public final class GuiManager implements Listener {
         if (local < 0) {
             return;
         }
-        // 与渲染顺序一致：local → 条目列表索引（cropMenuEntries）
+        // 与渲染顺序一致：local → 条目列表索引（渲染时快照；缺失时回退当前注册表）
         int idx = h.getPage() * ConfigManager.WAREHOUSE_PAGE_SLOTS + local;
-        List<WarehouseResource> entries = cropMenuEntries();
+        @SuppressWarnings("unchecked")
+        List<WarehouseResource> entries = h.getEntrySnapshot() == null
+                ? cropMenuEntries()
+                : (List<WarehouseResource>) h.getEntrySnapshot();
         if (idx >= entries.size()) {
             return;
         }
@@ -1167,7 +1203,7 @@ public final class GuiManager implements Listener {
                 plugin.getLogger().warning("农田解锁扣款成功但退款与落库均失败，保持 PENDING: uuid=" + uuid + " opId=" + opId);
             }
         }
-        scheduleOpen(() -> openFarm(player, page));
+        reopenIf(player, GuiType.FARM, () -> openFarm(player, page));
     }
 
     /** 骨粉 GUI：点击背包骨粉物品放入库存。 */
@@ -1267,7 +1303,7 @@ public final class GuiManager implements Listener {
                         + uuid + " opId=" + opId + " cost=" + costText);
             }
         }
-        scheduleOpen(() -> openBonemeal(player, 0, fromFarm));
+        reopenIf(player, GuiType.BONEMEAL, () -> openBonemeal(player, 0, fromFarm));
     }
 
     /** 取走一组物品：发给玩家真实物品并扣总数，格子清空/减量。 */
@@ -1285,7 +1321,8 @@ public final class GuiManager implements Listener {
         if (accepted <= 0) {
             // 背包全满：退回虚拟库存（退回失败必须记录台账，否则物品凭空消失）
             if (!db.addCropStock(h.getUuid(), res.getCropId(), res.getItemType(), qty)) {
-                db.addCompensation(h.getUuid(), res.getItemType(), res.getCropId(), res.getItemType(), qty, "takeItem-full-rollback");
+                db.addCompensation(h.getUuid(), res.isProduct() ? "PRODUCT" : "SEED",
+                        res.getCropId(), res.getItemType(), qty, "takeItem-full-rollback");
                 plugin.getLogger().warning("取物退回库存失败: uuid=" + h.getUuid() + " qty=" + qty);
             }
             player.sendMessage(ConfigManager.MSG_INV_FULL);
@@ -1295,7 +1332,8 @@ public final class GuiManager implements Listener {
             // 装不下的部分退回虚拟库存
             int back = qty - accepted;
             if (!db.addCropStock(h.getUuid(), res.getCropId(), res.getItemType(), back)) {
-                db.addCompensation(h.getUuid(), res.getItemType(), res.getCropId(), res.getItemType(), back, "takeItem-partial-rollback");
+                db.addCompensation(h.getUuid(), res.isProduct() ? "PRODUCT" : "SEED",
+                        res.getCropId(), res.getItemType(), back, "takeItem-partial-rollback");
                 plugin.getLogger().warning("取物部分退回库存失败: uuid=" + h.getUuid() + " qty=" + back);
             }
         }
@@ -1345,6 +1383,17 @@ public final class GuiManager implements Listener {
 
     private void scheduleOpen(Runnable task) {
         Bukkit.getScheduler().runTask(plugin, task);
+    }
+
+    /**
+     * 操作成功后的界面刷新：仅当玩家当前仍打开该类型自定义 GUI 时才执行。
+     * 防止玩家点击后手快 ESC 关闭，结果下个 tick 界面「凭空弹回」。
+     */
+    private void reopenIf(Player player, GuiType type, Runnable task) {
+        Inventory top = player.getOpenInventory().getTopInventory();
+        if (top.getHolder() instanceof GuiHolder gh && gh.getType() == type) {
+            scheduleOpen(task);
+        }
     }
 
     /**
@@ -1454,7 +1503,7 @@ public final class GuiManager implements Listener {
     }
 
     /** 农田页已解锁格（绿色玻璃板，可种植）。 */
-    private ItemStack freeTile(boolean isFree) {
+    private ItemStack freeTile() {
         return guiItem("Farm.Free", Material.GREEN_STAINED_GLASS_PANE,
                 "§a免费种植格 - 种植作物",
                 List.of("§7点击选择要创建的作物"));
@@ -1523,10 +1572,11 @@ public final class GuiManager implements Listener {
         String lv3 = "§7Lv.3 产量：" + (baseProduct + 2) + " " + cropName
                 + (baseSeed > 0 ? " + " + baseSeed + " 种子" : "");
         return guiItem("Farmmanage.Update", Material.HOPPER, "§a农田升级",
-                List.of("§7当前 Lv." + level,
-                        "§7升级到 Lv." + (level + 1) + " 需 " + cost + " 金币",
+                List.of("§7当前 Lv.%level%",
+                        "§7升级到 Lv.%next-level% 需 %money% 金币",
                         lv2, lv3),
                 "%level%", String.valueOf(level),
+                "%next-level%", String.valueOf(level + 1),
                 "%money%", String.valueOf(cost),
                 "%lore%", lvNext);
     }
@@ -1558,10 +1608,10 @@ public final class GuiManager implements Listener {
                 "%BoneVariable%", on ? ConfigManager.BONE_ON : ConfigManager.BONE_OFF);
     }
 
-    /** 删除农田按钮（屏障）。 */
+    /** 清空农田按钮（屏障）：清空后该农田格恢复为绿色待种植状态。 */
     private ItemStack deleteFarmItem() {
-        return guiItem("Farmmanage.DeleFram", Material.BARRIER, "§c删除农田",
-                List.of("§7点击删除该农田（需二次确认）"));
+        return guiItem("Farmmanage.DeleFram", Material.BARRIER, "§c清空农田",
+                List.of("§7点击清空该农田，恢复为待种植状态（需二次确认）"));
     }
 
     private ItemStack growthItem(PlotState p, long now, CropType ct, int level) {

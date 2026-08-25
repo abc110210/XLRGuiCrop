@@ -43,19 +43,48 @@ public final class DatabaseManager {
         if (!dataFolder.exists() && !dataFolder.mkdirs()) {
             throw new IllegalStateException("无法创建插件数据目录: " + dataFolder.getAbsolutePath());
         }
-        File dbFile = new File(dataFolder, "data.db"); // TODO yml: storage.db-file
+        // 数据库路径来自 config.yml storage.db-file（相对服务端根目录 = 插件数据目录上一级上一级）
+        File dbFile = new File(dataFolder.getParentFile().getParentFile(), ConfigManager.DB_FILE);
         this.url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
         init();
     }
 
     // ================= 连接与建表 =================
 
+    /** 复用连接（WAL 单写者 + 全主线程串行，单连接足够）。 */
+    private Connection shared;
+
+    /**
+     * 获取连接：复用单条共享连接，首次建连时设置 busy_timeout（锁冲突等待 3s，避免 SQLite busy 报错）；
+     * 返回的代理包装使 try-with-resources 的 close() 不再真正关闭连接（连接复用）。
+     * journal_mode=WAL 是持久属性，仅在 {@link #init()} 设置一次，此处不再重复执行（消除写放大）。
+     */
     private Connection open() throws SQLException {
-        Connection conn = DriverManager.getConnection(url);
-        try (Statement st = conn.createStatement()) {
-            st.execute("PRAGMA journal_mode=WAL;");
+        if (shared == null || shared.isClosed()) {
+            shared = DriverManager.getConnection(url);
+            try (Statement st = shared.createStatement()) {
+                st.execute("PRAGMA busy_timeout=3000;");
+            }
         }
-        return conn;
+        return noCloseProxy(shared);
+    }
+
+    /** 代理包装：吞掉 close()（连接复用），其余方法透传真实连接。 */
+    @SuppressWarnings("unchecked")
+    private static Connection noCloseProxy(Connection real) {
+        return (Connection) java.lang.reflect.Proxy.newProxyInstance(
+                Connection.class.getClassLoader(),
+                new Class<?>[]{Connection.class},
+                (proxy, method, args) -> {
+                    if ("close".equals(method.getName()) && method.getParameterCount() == 0) {
+                        return null; // 忽略关闭，保持连接复用
+                    }
+                    try {
+                        return method.invoke(real, args);
+                    } catch (java.lang.reflect.InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
     }
 
     private void init() {
@@ -250,7 +279,6 @@ public final class DatabaseManager {
     }
 
     private long getCount(UUID uuid, String column) {
-        ensurePlayer(uuid);
         String sql = "SELECT " + column + " FROM player_data WHERE uuid=?";
         try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, uuid.toString());
@@ -308,7 +336,6 @@ public final class DatabaseManager {
 
     /** 查询某作物某项库存（itemType = SEED / PRODUCT）。 */
     public long getCropStock(UUID uuid, String cropId, String itemType) {
-        ensurePlayer(uuid);
         String sql = "SELECT count FROM crop_stock WHERE uuid=? AND crop_id=? AND item_type=?";
         try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, uuid.toString());
@@ -563,12 +590,18 @@ public final class DatabaseManager {
 
     /** 查询指定状态的最新补偿记录（管理员查看用，倒序）。 */
     public List<CompensationRecord> getCompensations(String status, int limit) {
+        return getCompensations(status, limit, 0);
+    }
+
+    /** 分页查询指定状态的补偿记录（offset 从 0 起；自动重放分页循环用）。 */
+    public List<CompensationRecord> getCompensations(String status, int limit, int offset) {
         List<CompensationRecord> list = new ArrayList<>();
         String sql = "SELECT id, uuid, kind, crop_id, item_type, amount, reason, created_at, status " +
-                "FROM compensation WHERE status=? ORDER BY id DESC LIMIT ?";
+                "FROM compensation WHERE status=? ORDER BY id DESC LIMIT ? OFFSET ?";
         try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, status);
             ps.setInt(2, limit);
+            ps.setInt(3, offset);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     list.add(mapCompensation(rs));
@@ -607,7 +640,9 @@ public final class DatabaseManager {
         boolean ok;
         switch (c.kind) {
             case "BONEMEAL" -> ok = addBonemeal(c.uuid, c.amount);
-            case "SEED" -> ok = c.cropId != null && addCropStock(c.uuid, c.cropId, "SEED", c.amount);
+            // 种子类：crop_stock 的种子键 = 具体素材材质名（记录在 item_type 列），不能用写死的 "SEED"
+            case "SEED" -> ok = c.cropId != null && c.itemType != null && !"SEED".equals(c.itemType)
+                    && addCropStock(c.uuid, c.cropId, c.itemType, c.amount);
             case "PRODUCT" -> ok = c.cropId != null && addCropStock(c.uuid, c.cropId, "PRODUCT", c.amount);
             default -> ok = false;
         }
@@ -692,7 +727,6 @@ public final class DatabaseManager {
 
     /** 已解锁页数（默认 1，即第 1 页）。 */
     public int getUnlockedPages(UUID uuid) {
-        ensurePlayer(uuid);
         String sql = "SELECT bonemeal_unlocked FROM player_data WHERE uuid=?";
         try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, uuid.toString());
@@ -852,17 +886,27 @@ public final class DatabaseManager {
                 }
                 conn.commit();
                 return true;
-            } catch (SQLException e) {
-                try {
-                    conn.rollback();
-                } catch (SQLException ignored) {
-                }
-                throw e;
-            }
         } catch (SQLException e) {
-            logError(e, "createFarmTransaction");
-            return false;
+            try {
+                conn.rollback();
+            } catch (SQLException ignored) {
+            }
+            throw e;
+        } finally {
+            // 共享连接复用：兜底回滚 + 恢复自动提交，防止事务残留/异常路径意外提交
+            try {
+                conn.rollback();
+            } catch (SQLException ignored) {
+            }
+            try {
+                conn.setAutoCommit(true);
+            } catch (SQLException ignored) {
+            }
         }
+    } catch (SQLException e) {
+        logError(e, "createFarmTransaction");
+        return false;
+    }
     }
 
     /** 删除农田槽位（回滚/清理用）。 */
@@ -875,16 +919,6 @@ public final class DatabaseManager {
         } catch (SQLException e) {
             logError(e, "removeFarmSlot");
         }
-    }
-
-    /** 跨页搜索第一个空闲全局槽位（page*28+local 升序），所有页均满则返回占用总数（继续可扩容）。 */
-    public int findFirstFreeFarmSlot(UUID uuid) {
-        Set<Integer> occupied = new HashSet<>(getFarmSlotIndexes(uuid));
-        int i = 0;
-        while (occupied.contains(i)) {
-            i++;
-        }
-        return i;
     }
 
     /**
@@ -912,7 +946,6 @@ public final class DatabaseManager {
         }
     }
     private int getUnlockedPages(UUID uuid, String column) {
-        ensurePlayer(uuid);
         String sql = "SELECT " + column + " FROM player_data WHERE uuid=?";
         try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, uuid.toString());
@@ -1077,17 +1110,27 @@ public final class DatabaseManager {
                 }
                 conn.commit();
                 return true;
-            } catch (SQLException e) {
-                try {
-                    conn.rollback();
-                } catch (SQLException ignored) {
-                }
-                throw e;
-            }
         } catch (SQLException e) {
-            logError(e, "savePlots");
-            return false;
+            try {
+                conn.rollback();
+            } catch (SQLException ignored) {
+            }
+            throw e;
+        } finally {
+            // 共享连接复用：兜底回滚 + 恢复自动提交，防止事务残留/异常路径意外提交
+            try {
+                conn.rollback();
+            } catch (SQLException ignored) {
+            }
+            try {
+                conn.setAutoCommit(true);
+            } catch (SQLException ignored) {
+            }
         }
+    } catch (SQLException e) {
+        logError(e, "savePlots");
+        return false;
+    }
     }
 
     /**
@@ -1131,17 +1174,27 @@ public final class DatabaseManager {
                 }
                 conn.commit();
                 return true;
-            } catch (SQLException e) {
-                try {
-                    conn.rollback();
-                } catch (SQLException ignored) {
-                }
-                throw e;
-            }
         } catch (SQLException e) {
-            logError(e, "settleHarvest");
-            return false;
+            try {
+                conn.rollback();
+            } catch (SQLException ignored) {
+            }
+            throw e;
+        } finally {
+            // 共享连接复用：兜底回滚 + 恢复自动提交，防止事务残留/异常路径意外提交
+            try {
+                conn.rollback();
+            } catch (SQLException ignored) {
+            }
+            try {
+                conn.setAutoCommit(true);
+            } catch (SQLException ignored) {
+            }
         }
+    } catch (SQLException e) {
+        logError(e, "settleHarvest");
+        return false;
+    }
     }
 
     /** 在给定事务连接上入账某作物库存；max<=0 时不限制上限，否则 clamp；达上限记录日志。 */
@@ -1224,17 +1277,27 @@ public final class DatabaseManager {
                 }
                 conn.commit();
                 return true;
-            } catch (SQLException e) {
-                try {
-                    conn.rollback();
-                } catch (SQLException ignored) {
-                }
-                throw e;
-            }
         } catch (SQLException e) {
-            logError(e, "deleteFarm");
-            return false;
+            try {
+                conn.rollback();
+            } catch (SQLException ignored) {
+            }
+            throw e;
+        } finally {
+            // 共享连接复用：兜底回滚 + 恢复自动提交，防止事务残留/异常路径意外提交
+            try {
+                conn.rollback();
+            } catch (SQLException ignored) {
+            }
+            try {
+                conn.setAutoCommit(true);
+            } catch (SQLException ignored) {
+            }
         }
+    } catch (SQLException e) {
+        logError(e, "deleteFarm");
+        return false;
+    }
     }
 
     /** 一笔进行中的经济操作（升级/解锁）：PENDING → PAID / ROLLED_BACK。 */

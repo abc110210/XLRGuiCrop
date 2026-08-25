@@ -26,8 +26,17 @@ public final class ConfigLoader {
         File folder = plugin.getDataFolder();
         YamlConfiguration cfg = YamlConfiguration.loadConfiguration(extract(plugin, folder, "config.yml"));
         YamlConfiguration gui = YamlConfiguration.loadConfiguration(extract(plugin, folder, "gui.yml"));
-        ConfigManager.apply(cfg, gui);
-        CropRegistry.registerAll(parseCrops(plugin, cfg, gui));
+        // reload 原子性：先快照，apply/注册中途抛异常（如槽位冲突/语法错误）时恢复，杜绝「半新半旧」状态
+        java.util.Map<String, Object> snap = ConfigManager.snapshotState();
+        java.util.Map<String, CropType> cropSnap = CropRegistry.snapshot();
+        try {
+            ConfigManager.apply(cfg, gui);
+            CropRegistry.registerAll(parseCrops(plugin, cfg, gui));
+        } catch (RuntimeException e) {
+            ConfigManager.restoreState(snap);
+            CropRegistry.restore(cropSnap);
+            throw e;
+        }
         plugin.getLogger().info("Loaded config.yml + gui.yml, crops: " + CropRegistry.all().size());
     }
 

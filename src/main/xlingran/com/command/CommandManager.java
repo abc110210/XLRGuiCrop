@@ -48,29 +48,91 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("§c该指令仅限玩家使用。");
-            return true;
-        }
         if (args.length == 0) {
-            player.sendMessage("§e输入 /xlr crop help 查看 XLRGuiCrop 帮助。");
+            sender.sendMessage("§e输入 /xlr crop help 查看 XLRGuiCrop 帮助。");
             return true;
         }
-        UUID uuid = player.getUniqueId();
         // 仅保留 /xlr crop 前缀（旧 /xlr farm 等已删除）
         if (!"crop".equalsIgnoreCase(args[0])) {
-            player.sendMessage("§c未知子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp|help]");
+            sender.sendMessage("§c未知子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp|help|reload]");
             return true;
         }
-        handleCrop(player, uuid, args);
+        if (args.length == 1) {
+            sender.sendMessage("§e用法: /xlr crop [create|farm|gui|bone|menu|update|comp|help|reload]");
+            return true;
+        }
+        if (!(sender instanceof Player player)) {
+            // 控制台/命令方块：仅放行管理子指令（update / comp / reload），便于远程运维
+            handleConsole(sender, args);
+            return true;
+        }
+        handleCrop(player, player.getUniqueId(), args);
         return true;
     }
 
-    private void handleCrop(Player player, UUID uuid, String[] args) {
-        if (args.length == 1) {
-            player.sendMessage("§e用法: /xlr crop [create|farm|gui|bone|menu|update|comp]");
+    /** 控制台/命令方块入口：仅支持管理子指令（update/comp/reload）。 */
+    private void handleConsole(CommandSender sender, String[] args) {
+        switch (args[1].toLowerCase()) {
+            case "update" -> handleUpdate(sender, args);
+            case "comp" -> {
+                if (!sender.hasPermission("xlr.crop.comp")) {
+                    sender.sendMessage(ConfigManager.MSG_NO_PERM);
+                    return;
+                }
+                handleComp(sender, args);
+            }
+            case "reload" -> reload(sender);
+            default -> sender.sendMessage("§c控制台仅支持管理指令: /xlr crop [update|comp|reload]");
+        }
+    }
+
+    /** /xlr crop update (bone|farm) 共用分发（玩家/控制台均可）。 */
+    private void handleUpdate(CommandSender sender, String[] args) {
+        if (args.length < 4) {
+            sender.sendMessage("§c用法: /xlr crop update (bone|farm) <玩家ID> <数值>");
             return;
         }
+        if ("farm".equalsIgnoreCase(args[2])) {
+            if (!sender.hasPermission("xlr.crop.update.farm")) {
+                sender.sendMessage(ConfigManager.MSG_NO_PERM);
+                return;
+            }
+            if (args.length < 5) {
+                sender.sendMessage("§c用法: /xlr crop update farm <玩家ID> <增加农田页数>");
+                return;
+            }
+            updateFarmPages(sender, args[3], args[4]);
+        } else if ("bone".equalsIgnoreCase(args[2])) {
+            if (!sender.hasPermission("xlr.crop.update.bone")) {
+                sender.sendMessage(ConfigManager.MSG_NO_PERM);
+                return;
+            }
+            if (args.length < 5) {
+                sender.sendMessage("§c用法: /xlr crop update bone <玩家ID> <解锁页数>");
+                return;
+            }
+            updateBonemealPages(sender, args[3], args[4]);
+        } else {
+            sender.sendMessage("§c用法: /xlr crop update (bone|farm) <玩家ID> <数值>");
+        }
+    }
+
+    /** 重载配置文件（玩家/控制台均可）。 */
+    private void reload(CommandSender sender) {
+        if (!sender.hasPermission("xlr.crop.reload")) {
+            sender.sendMessage(ConfigManager.MSG_NO_PERM);
+            return;
+        }
+        try {
+            plugin.reloadXlrConfig();
+            sender.sendMessage("§a配置已重载（config.yml + gui.yml）。");
+        } catch (Exception ex) {
+            sender.sendMessage("§c配置重载失败: " + ex.getMessage());
+            plugin.getLogger().warning("reload 失败: " + ex);
+        }
+    }
+
+    private void handleCrop(Player player, UUID uuid, String[] args) {
         switch (args[1].toLowerCase()) {
             case "create" -> {
                 if (!player.hasPermission("xlr.crop.create")) {
@@ -112,35 +174,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 }
                 gui.openMenu(player);
             }
-            case "update" -> {
-                if (args.length < 4) {
-                    player.sendMessage("§c用法: /xlr crop update (bone|farm) <玩家ID> <数值>");
-                    return;
-                }
-                if ("farm".equalsIgnoreCase(args[2])) {
-                    if (!player.hasPermission("xlr.crop.update.farm")) {
-                        player.sendMessage(ConfigManager.MSG_NO_PERM);
-                        return;
-                    }
-                    if (args.length < 5) {
-                        player.sendMessage("§c用法: /xlr crop update farm <玩家ID> <增加农田页数>");
-                        return;
-                    }
-                    updateFarmPages(player, args[3], args[4]);
-                } else if ("bone".equalsIgnoreCase(args[2])) {
-                    if (!player.hasPermission("xlr.crop.update.bone")) {
-                        player.sendMessage(ConfigManager.MSG_NO_PERM);
-                        return;
-                    }
-                    if (args.length < 5) {
-                        player.sendMessage("§c用法: /xlr crop update bone <玩家ID> <解锁页数>");
-                        return;
-                    }
-                    updateBonemealPages(player, args[3], args[4]);
-                } else {
-                    player.sendMessage("§c用法: /xlr crop update (bone|farm) <玩家ID> <数值>");
-                }
-            }
+            case "update" -> handleUpdate(player, args);
             case "comp" -> {
                 if (!player.hasPermission("xlr.crop.comp")) {
                     player.sendMessage(ConfigManager.MSG_NO_PERM);
@@ -154,20 +188,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                     player.sendMessage(line);
                 }
             }
-            case "reload" -> {
-                // 重载配置文件（config.yml + gui.yml），权限 xlr.crop.reload（默认 op）
-                if (!player.hasPermission("xlr.crop.reload")) {
-                    player.sendMessage(ConfigManager.MSG_NO_PERM);
-                    return;
-                }
-                try {
-                    plugin.reloadConfig();
-                    player.sendMessage("§a配置已重载（config.yml + gui.yml）。");
-                } catch (Exception ex) {
-                    player.sendMessage("§c配置重载失败: " + ex.getMessage());
-                    plugin.getLogger().warning("reload 失败: " + ex);
-                }
-            }
+            case "reload" -> reload(player);
             default -> player.sendMessage("§c未知 crop 子指令，用法: /xlr crop [create|farm|gui|bone|menu|update|comp|help|reload]");
         }
     }
@@ -186,7 +207,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
      * 农田已解锁页数叠加：/xlr crop update farm <玩家ID> <页数>。
      * 新增页即解锁，且新页第 1 格免费（可种植）。
      */
-    private void updateFarmPages(Player sender, String targetName, String countStr) {
+    private void updateFarmPages(CommandSender sender, String targetName, String countStr) {
         int delta;
         try {
             delta = Integer.parseInt(countStr);
@@ -227,7 +248,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
     }
 
     /** 骨粉页数叠加解锁：/xlr crop update bone <玩家ID> <页数>。 */
-    private void updateBonemealPages(Player sender, String targetName, String countStr) {
+    private void updateBonemealPages(CommandSender sender, String targetName, String countStr) {
         int delta;
         try {
             delta = Integer.parseInt(countStr);
@@ -269,7 +290,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
     }
 
     /** 补偿台账管理：/xlr crop comp [list|replay <id>|done <id>]（xlr.crop.comp，默认 op）。 */
-    private void handleComp(Player player, String[] args) {
+    private void handleComp(CommandSender player, String[] args) {
         if (args.length < 3) {
             player.sendMessage("§e用法: /xlr crop comp [list|replay <id>|done <id>]");
             return;
@@ -314,7 +335,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
         }
     }
 
-    private long parseCompId(Player player, String[] args) {
+    private long parseCompId(CommandSender player, String[] args) {
         if (args.length < 4) {
             player.sendMessage("§c缺少补偿 ID，用法: /xlr crop comp [replay|done] <id>");
             return -1;

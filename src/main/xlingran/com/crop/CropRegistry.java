@@ -39,4 +39,17 @@ public final class CropRegistry {
     public static Map<String, CropType> all() {
         return Collections.unmodifiableMap(CROPS);
     }
+
+    /** 快照当前注册表（reload 原子性用；失败时恢复）。 */
+    public static Map<String, CropType> snapshot() {
+        return new LinkedHashMap<>(CROPS);
+    }
+
+    /** 恢复注册表快照（reload 失败时调用）。 */
+    public static void restore(Map<String, CropType> snap) {
+        CROPS.clear();
+        if (snap != null) {
+            CROPS.putAll(snap);
+        }
+    }
 }

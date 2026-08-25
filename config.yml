@@ -19,7 +19,7 @@ tick:
 farm:
   # 补种/自动重播 1 格消耗的种子数
   replant-cost-seed: 1
-  # 删除农田聊天二次确认超时（秒）
+  # 清空农田（恢复待种植）聊天二次确认超时（秒）
   delete-confirm-timeout-sec: 60
   # 玩家默认可拥有的农田数量上限；设为 0 = 关闭该上限（不限制），
   # 农田扩张完全由下方农田页解锁体系（unlock-batch / unlock-price）控制——
@@ -71,7 +71,6 @@ crops:
     # 从该生长阶段（0-7）起展示 product-material 图标（此前展示 seed-material）；仅 show-stage-change=true 时生效
     show-product-stage: 3
   beetroot:
-    icon: BEETROOT
     seed-material: BEETROOT_SEEDS
     product-material: BEETROOT
     name: "甜菜根"
@@ -82,7 +81,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   carrot:
-    icon: CARROT
     # 占位种子素材（与产物不同，会生成独立种子仓库入口；随意填，后续可改）
     seed-material: GOLDEN_CARROT
     product-material: CARROT
@@ -94,7 +92,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   potato:
-    icon: POTATO
     seed-material: BAKED_POTATO
     product-material: POTATO
     name: "马铃薯"
@@ -105,7 +102,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   melon:
-    icon: MELON
     seed-material: MELON_SEEDS
     # 成熟后展示的物品（Material 名）——生长后期图标、成熟图标用它
     product-material: MELON
@@ -118,7 +114,6 @@ crops:
     show-stage-change: true
     show-product-stage: 3
   pumpkin:
-    icon: PUMPKIN
     seed-material: PUMPKIN_SEEDS
     product-material: PUMPKIN
     name: "南瓜"
@@ -129,7 +124,6 @@ crops:
     show-stage-change: true
     show-product-stage: 3
   bamboo:
-    icon: BAMBOO
     # 竹苗(BAMBOO_SAPLING)不是可拾取物品，用木棍占位
     seed-material: STICK
     product-material: BAMBOO
@@ -141,7 +135,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   cocoa:
-    icon: COCOA_BEANS
     seed-material: SWEET_BERRIES
     product-material: COCOA_BEANS
     name: "可可豆"
@@ -152,7 +145,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   sugarcane:
-    icon: SUGAR_CANE
     seed-material: DRIED_KELP
     product-material: SUGAR_CANE
     name: "甘蔗"
@@ -163,7 +155,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   cactus:
-    icon: CACTUS
     seed-material: CACTUS_FLOWER
     product-material: CACTUS
     name: "仙人掌"
@@ -174,7 +165,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   mushroom:
-    icon: BROWN_MUSHROOM
     seed-material: RED_MUSHROOM
     product-material: BROWN_MUSHROOM
     name: "蘑菇"
@@ -185,7 +175,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   kelp:
-    icon: KELP
     seed-material: TUBE_CORAL
     product-material: KELP
     name: "海带"
@@ -196,7 +185,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   sea_pickle:
-    icon: SEA_PICKLE
     seed-material: FIRE_CORAL
     product-material: SEA_PICKLE
     name: "海泡菜"
@@ -207,7 +195,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   glow_berries:
-    icon: GLOW_BERRIES
     seed-material: GLOW_LICHEN
     product-material: GLOW_BERRIES
     name: "发光浆果"
@@ -218,7 +205,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   nether_wart:
-    icon: NETHER_WART
     seed-material: NETHER_SPROUTS
     product-material: NETHER_WART
     name: "下界疣"
@@ -229,7 +215,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   crimson_fungus:
-    icon: CRIMSON_FUNGUS
     seed-material: CRIMSON_ROOTS
     product-material: CRIMSON_FUNGUS
     name: "绯红菌"
@@ -240,7 +225,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   warped_fungus:
-    icon: WARPED_FUNGUS
     seed-material: WARPED_ROOTS
     product-material: WARPED_FUNGUS
     name: "扭曲菌"
@@ -251,7 +235,6 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   chorus_flower:
-    icon: CHORUS_FLOWER
     seed-material: CHORUS_FRUIT
     product-material: CHORUS_FLOWER
     name: "歌莱花"
@@ -284,7 +267,6 @@ message:
   crop-created: "&a成功创建 &f%farmname% &a（第 %page% 页 · 第 %slot% 格）！已种植 %replant% 格。"
   farm-full: "&c所有农田页已满，无法继续创建农田！"
   farm-limit: "&c你最多只能拥有 %max% 块农田！"
-  page-locked: "&c当前页 %page-slots% 格农田已满后才能进入下一页！"
   farm-page-locked: "&c你尚未解锁第 %page% 页农田。"
   farm-unlock-done: "&a已花费 %cost% 金币解锁 %count% 个种植格！"
   farm-unlock-no-money: "&c金币不足，解锁下一批种植格需要 %cost% 金币！"
@@ -310,10 +292,10 @@ message:
   player-not-found: "&c找不到玩家 %player%。"
   db-error: "&c数据库操作失败，请稍后重试。"
   bonemeal-fast-toggled: "&a骨粉加速已%state%（仅自动重播生效）。"
-  farm-delete-confirm: "&e你确定要删除这个农田吗？如果确定，请输入 &a删除 &e；否则请输入 &c取消 &e。"
-  farm-delete-done: "&a该农田已删除。"
-  farm-delete-cancelled: "&e已取消删除该农田。"
-  farm-delete-hint: "&e请输入 &a删除 &e确认，或 &c取消 &e放弃。"
+  farm-delete-confirm: "&e你确定要清空这个农田吗？清空后该农田格将恢复为待种植状态。如果确定，请输入 &a清空 &e；否则请输入 &c取消 &e。"
+  farm-delete-done: "&a该农田已清空，可重新种植。"
+  farm-delete-cancelled: "&e已取消清空该农田。"
+  farm-delete-hint: "&e请输入 &a清空 &e确认，或 &c取消 &e放弃。"
   # /xlr help 多行帮助（List 格式，& 为颜色代码，可随意增删行）
   help:
     - "&6========== XLRGuiCrop 帮助 =========="

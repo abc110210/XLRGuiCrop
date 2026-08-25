@@ -158,14 +158,14 @@ Farmmanage:
         Lore:
             - "补种"
             - ""
-    # 升级（%level%/%money%/%lore% 由代码填充）
+    # 升级（%level%=当前等级、%next-level%=目标等级、%money%/%lore% 由代码填充）
     Update:
         material: HOPPER
         slot: 12
         name: "&a农田升级"
         Lore:
             - "当前LV.%level%"
-            - "升级到 LV.%level% 需 %money% 金币"
+            - "升级到 LV.%next-level% 需 %money% 金币"
             - "%lore%"
     # 骨粉加速开关（%BoneVariable% = 开/关，取自 BoneVariable 段）
     Bone:
@@ -174,13 +174,13 @@ Farmmanage:
         name: "&a骨粉加速"
         Lore:
             - "当前状态: %BoneVariable%"
-    # 删除农田
+    # 清空农田（恢复为绿色待种植状态）
     DeleFram:
         material: BARRIER
         slot: 14
-        name: "&c删除农田"
+        name: "&c清空农田"
         Lore:
-            - "点击删除该农田"
+            - "点击清空该农田，恢复为待种植状态"
     # 返回
     Prvepage:
         material: ARROW
@@ -567,14 +567,11 @@ Bone:
             - ""
 
 # ================= 骨粉页面升级价格 =================
+# 解锁第 N 页价格 = Page2.Money × (N-1) 线性递增（代码只读 Page2 作基准，勿另配 Page3/Page4 等，不会被读取）
 UpdateBone:
     # 第一页默认解锁，所以从第二页开始
     Page2:
         Money: 1000
-    Page3:
-        Money: 2000
-    Page4:
-        Money: 3000
 
 # ================= 农作物仓库 Gui =================
 Crop:

@@ -3,7 +3,10 @@ package xlingran.com.config;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.permissions.PermissionAttachmentInfo;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -22,6 +25,9 @@ import java.util.Set;
 public final class ConfigManager {
 
     private ConfigManager() {}
+
+    // ================= 存储（config.yml storage 段） =================
+    /** SQLite 数据库文件（相对服务端根目录；config.yml storage.db-file） */ public static String DB_FILE = "plugins/XLRGuiCrop/data.db";
 
     // ================= GUI 标题（gui.yml 可覆盖） =================
     /** 主菜单标题 */ public static String GUI_MENU_TITLE = "主菜单";
@@ -55,8 +61,8 @@ public final class ConfigManager {
     /** 补种按钮槽位（第2行第2格） */ public static int FARM_MANAGE_REPLANT_SLOT = 10;
     /** 农田升级按钮槽位（第2行第4格） */ public static int FARM_MANAGE_UPGRADE_SLOT = 12;
     /** 骨粉加速开关槽位（第2行第8格） */ public static int FARM_MANAGE_FAST_SLOT = 16;
-    /** 删除农田槽位（第3行第5格） */ public static int FARM_MANAGE_DELETE_SLOT = 22;
-    /** 返回农田槽位（第3行第1格） */ public static int FARM_MANAGE_BACK_SLOT = 18;
+    /** 清空农田按钮槽位（gui.yml Farmmanage.DeleFram.slot=14） */ public static int FARM_MANAGE_DELETE_SLOT = 14;
+    /** 返回农田槽位（gui.yml Farmmanage.Prvepage.slot=22） */ public static int FARM_MANAGE_BACK_SLOT = 22;
 
     /** 农田最高等级（由 gui.yml FarmUpdate 的 LVn 段数决定） */ public static int FARM_MAX_LEVEL = 3;
     /** 升级到 Lv.2 消耗金币 */ public static int FARM_UPGRADE_COST_2 = 1000;
@@ -105,10 +111,23 @@ public final class ConfigManager {
      * （扩张完全由农田页付费解锁体系控制，避免「解锁了格子却因上限建不了田」的逻辑矛盾）。
      */
     public static int allowedFarms(org.bukkit.entity.Player player) {
-        for (int n = 100; n >= 1; n--) {
-            if (player.hasPermission("xlr.crop.create.farm." + n)) {
-                return n;
+        // 遍历玩家有效权限集，匹配 xlr.crop.create.farm.<数字> 取最大 N（无硬编码上限）
+        int max = -1;
+        for (PermissionAttachmentInfo info : player.getEffectivePermissions()) {
+            String perm = info.getPermission();
+            if (perm != null && info.getValue() && perm.startsWith("xlr.crop.create.farm.")) {
+                try {
+                    int n = Integer.parseInt(perm.substring("xlr.crop.create.farm.".length()));
+                    if (n > max) {
+                        max = n;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // 非法数字忽略
+                }
             }
+        }
+        if (max > 0) {
+            return max;
         }
         return FARM_MAX_FARMS <= 0 ? Integer.MAX_VALUE : FARM_MAX_FARMS;
     }
@@ -149,7 +168,7 @@ public final class ConfigManager {
 
     // ================= 调度 =================
     /** 定时器间隔（秒） */ public static int TICK_INTERVAL_SEC = 60;
-    /** 删除农田聊天确认超时（秒） */ public static int DELETE_CONFIRM_TIMEOUT_SEC = 60;
+    /** 清空农田聊天确认超时（秒） */ public static int DELETE_CONFIRM_TIMEOUT_SEC = 60;
     /** 补种/重播一格消耗的种子数 */ public static int REPLANT_COST_SEED = 1;
 
     // ================= 文案变量（gui.yml Hours/Minutes/Seconds、BoneVariable） =================
@@ -163,7 +182,6 @@ public final class ConfigManager {
     public static String MSG_CROP_CREATED = "§a成功创建 §f%farmname% §a（第 %page% 页 · 第 %slot% 格）！已种植 %replant% 格。";
     public static String MSG_FARM_FULL = "§c所有农田页已满，无法继续创建农田！";
     public static String MSG_FARM_LIMIT = "§c你最多只能拥有 %max% 块农田！";
-    public static String MSG_PAGE_LOCKED = "§c当前页 28 格全部解锁种植后才会自动解锁下一页。";
     public static String MSG_FARM_PAGE_LOCKED = "§c你尚未解锁第 %page% 页农田。";
     public static String MSG_FARM_UNLOCK_DONE = "§a已花费 %cost% 金币解锁 %count% 个种植格！";
     public static String MSG_FARM_UNLOCK_NO_MONEY = "§c金币不足，解锁下一批种植格需要 %cost% 金币！";
@@ -189,10 +207,10 @@ public final class ConfigManager {
     public static String MSG_PLAYER_NOT_FOUND = "§c找不到玩家 %player%。";
     public static String MSG_DB_ERROR = "§c数据库操作失败，请稍后重试。";
     public static String MSG_BONEMEAL_FAST_TOGGLED = "§a骨粉加速已%state%（仅自动重播生效）。";
-    public static String MSG_DELETE_CONFIRM = "§e你确定要删除这个农田吗？如果确定，请输入 §a删除 §e；否则请输入 §c取消 §e。";
-    public static String MSG_DELETE_DONE = "§a该农田已删除。";
-    public static String MSG_DELETE_CANCELLED = "§e已取消删除该农田。";
-    public static String MSG_DELETE_HINT = "§e请输入 §a删除 §e确认，或 §c取消 §e放弃。";
+    public static String MSG_DELETE_CONFIRM = "§e你确定要清空这个农田吗？清空后该农田格将恢复为待种植状态。如果确定，请输入 §a清空 §e；否则请输入 §c取消 §e。";
+    public static String MSG_DELETE_DONE = "§a该农田已清空，可重新种植。";
+    public static String MSG_DELETE_CANCELLED = "§e已取消清空该农田。";
+    public static String MSG_DELETE_HINT = "§e请输入 §a清空 §e确认，或 §c取消 §e放弃。";
     /** 帮助（config.yml message.help 多行覆盖）；/xlr help 显示。 */
     public static List<String> MSG_HELP = List.of(
             "§6========== XLRGuiCrop 帮助 ==========",
@@ -219,6 +237,7 @@ public final class ConfigManager {
      */
     public static void apply(YamlConfiguration cfg, YamlConfiguration gui) {
         // ---- 数值（config.yml） ----
+        DB_FILE = cfg.getString("storage.db-file", DB_FILE);
         TICK_INTERVAL_SEC = Math.max(1, cfg.getInt("tick.interval-sec", TICK_INTERVAL_SEC));
         DELETE_CONFIRM_TIMEOUT_SEC = Math.max(1, cfg.getInt("farm.delete-confirm-timeout-sec", DELETE_CONFIRM_TIMEOUT_SEC));
         // 0 = 关闭农田数量上限（扩张完全由农田页解锁体系控制）；>0 为默认上限
@@ -282,9 +301,17 @@ public final class ConfigManager {
         checkSlotClash("主菜单", MENU_FARM_SLOT, MENU_BONEMEAL_SLOT, MENU_CROP_MENU_SLOT);
         checkSlotClash("农田管理", FARM_MANAGE_REPLANT_SLOT, FARM_MANAGE_UPGRADE_SLOT, FARM_MANAGE_FAST_SLOT,
                 FARM_MANAGE_DELETE_SLOT, FARM_MANAGE_BACK_SLOT);
+        checkSlotClash("农田", FARM_BACK_SLOT, FARM_PREV_SLOT, FARM_NEXT_SLOT, FARM_BONEMEAL_SLOT);
         checkSlotClash("骨粉储存器", BONEMEAL_UNLOCK_SLOT, BONEMEAL_NEXT_SLOT, BONEMEAL_PREV_SLOT, BONEMEAL_BACK_SLOT);
         checkSlotClash("农作物仓库", CROP_MENU_NEXT_SLOT, CROP_MENU_BACK_SLOT);
         checkSlotClash("作物仓库", WAREHOUSE_FILL_SLOT, WAREHOUSE_BACK_SLOT);
+        // 农田功能按钮不得落在内部 28 种植格：否则点击会先命中翻页/返回分支，农田格功能被吞
+        for (int s : new int[]{FARM_BACK_SLOT, FARM_PREV_SLOT, FARM_NEXT_SLOT, FARM_BONEMEAL_SLOT}) {
+            if (isInnerSlot(s)) {
+                throw new IllegalStateException("[XLRGuiCrop] 农田按钮槽位落在内部种植格: slot=" + s
+                        + "（会吞掉农田格功能）。请修正 gui.yml 后重启插件。");
+            }
+        }
 
         // ---- 材质（gui.yml，空则保留默认） ----
         FRAME_MATERIAL = material(gui, "menu.Fill.material", FRAME_MATERIAL);
@@ -339,7 +366,6 @@ public final class ConfigManager {
             MSG_CROP_CREATED = color(m, "crop-created", MSG_CROP_CREATED);
             MSG_FARM_FULL = color(m, "farm-full", MSG_FARM_FULL);
             MSG_FARM_LIMIT = color(m, "farm-limit", MSG_FARM_LIMIT);
-            MSG_PAGE_LOCKED = color(m, "page-locked", MSG_PAGE_LOCKED);
             MSG_FARM_PAGE_LOCKED = color(m, "farm-page-locked", MSG_FARM_PAGE_LOCKED);
             MSG_FARM_UNLOCK_DONE = color(m, "farm-unlock-done", MSG_FARM_UNLOCK_DONE);
             MSG_FARM_UNLOCK_NO_MONEY = color(m, "farm-unlock-no-money", MSG_FARM_UNLOCK_NO_MONEY);
@@ -384,6 +410,73 @@ public final class ConfigManager {
             out.add(s.replace('&', '§'));
         }
         return out;
+    }
+
+    /**
+     * 快照全部可配置静态字段（reload 原子性用：apply 中途抛异常时由 {@link #restoreState} 恢复，
+     * 防止「数值/标题已覆盖、槽位校验失败」导致内存配置半新半旧）。
+     * 容器字段（Map/List）做内容拷贝（含 final 容器，如 GUI_ITEMS）。
+     */
+    public static Map<String, Object> snapshotState() {
+        Map<String, Object> snap = new HashMap<>();
+        try {
+            for (Field f : ConfigManager.class.getFields()) {
+                if (!Modifier.isStatic(f.getModifiers())) {
+                    continue;
+                }
+                Object v = f.get(null);
+                if (v instanceof Map<?, ?>) {
+                    snap.put(f.getName(), new LinkedHashMap<>((Map<?, ?>) v));
+                } else if (v instanceof List<?>) {
+                    snap.put(f.getName(), new ArrayList<>((List<?>) v));
+                } else if (!Modifier.isFinal(f.getModifiers())) {
+                    snap.put(f.getName(), v);
+                }
+            }
+        } catch (IllegalAccessException e) {
+            System.err.println("[XLRGuiCrop] 配置快照失败: " + e);
+        }
+        return snap;
+    }
+
+    /** 恢复配置快照（reload 失败时调用，保证配置不被污染）。 */
+    public static void restoreState(Map<String, Object> snap) {
+        if (snap == null) {
+            return;
+        }
+        try {
+            for (Map.Entry<String, Object> en : snap.entrySet()) {
+                Field f = ConfigManager.class.getField(en.getKey());
+                if (!Modifier.isStatic(f.getModifiers())) {
+                    continue;
+                }
+                Object v = en.getValue();
+                if (Modifier.isFinal(f.getModifiers())) {
+                    // final 容器：清空后填回（内容由 apply 修改过）
+                    if (v instanceof Map<?, ?>) {
+                        ((Map<Object, Object>) f.get(null)).clear();
+                        ((Map<Object, Object>) f.get(null)).putAll((Map<?, ?>) v);
+                    } else if (v instanceof List<?>) {
+                        ((List<Object>) f.get(null)).clear();
+                        ((List<Object>) f.get(null)).addAll((List<?>) v);
+                    }
+                    continue;
+                }
+                if (f.getType() == int.class) {
+                    f.setInt(null, (Integer) v);
+                } else if (f.getType() == long.class) {
+                    f.setLong(null, (Long) v);
+                } else if (f.getType() == double.class) {
+                    f.setDouble(null, (Double) v);
+                } else if (f.getType() == boolean.class) {
+                    f.setBoolean(null, (Boolean) v);
+                } else {
+                    f.set(null, v);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[XLRGuiCrop] 配置恢复失败: " + e);
+        }
     }
 
     /** 解析 gui.yml FarmUpdate：等级上限取最大 LVn，每级产量/升级价/时间缩短缓存。 */
