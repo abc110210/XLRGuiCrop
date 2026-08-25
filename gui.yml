@@ -16,25 +16,21 @@ menu:
         name: ""
         Lore:
             - ""
-    # 农田创建
-    Farmcreate:
-        material: WHEAT
-        slot: 10
-        name: "&6创建农田"
-        Lore:
-            - "创建新的农田"
+    # 农田
     Farm:
         material: GRASS_BLOCK
-        slot: 12
+        slot: 10
         name: "&6农田"
         Lore:
             - "点击进入自己的农田"
+    # 骨粉储存
     Bone:
         material: BONE_MEAL
-        slot: 14
+        slot: 13
         name: "&6骨粉储存"
         Lore:
             - "点击进入骨粉储存"
+    # 农作物仓库
     Crop:
         material: CHEST
         slot: 16
@@ -74,16 +70,40 @@ Farm:
         Lore:
             - "左键: 进入作物生长"
             - "右键: 进入农田管理"
-    # 下一页（无 slot：第 1 页 slot49 / 第 2 页起 slot51，由代码按页放置）
+    # 下一页（第6行第6格 slot50）
     Nextpage:
         material: ARROW
         name: "&a下一页"
         Lore:
             - ""
-    # 上一页（无 slot：slot47，仅非首页显示）
+    # 上一页（第6行第4格 slot48，仅第 2 页起）
     Prvepage:
         material: ARROW
         name: "&a上一页"
+        Lore:
+            - ""
+    # 返回上一个菜单（第6行第1格 slot45，羽毛）
+    PrveBack:
+        material: FEATHER
+        name: "&a返回上一个菜单"
+        Lore:
+            - ""
+    # 绿色可种植格
+    Free:
+        material: GREEN_STAINED_GLASS
+        name: "&a免费种植格 - 种植作物"
+        Lore:
+            - "点击选择要创建的作物"
+    # 黄色待解锁批
+    Yellow:
+        material: YELLOW_STAINED_GLASS
+        name: "&e花费 $X 购买 3 个种植格"
+        Lore:
+            - "点击付费解锁下一批种植格"
+    # 红色前置未解锁
+    Red:
+        material: RED_STAINED_GLASS
+        name: "&c请先解锁前置种植格，才可继续扩建"
         Lore:
             - ""
     # 骨粉储存器入口
@@ -518,23 +538,31 @@ Bone:
         name: ""
         Lore:
             - ""
-    # 升级解锁（%money%/%page% 由代码填充）
+    # 升级解锁（%money%/%page% 由代码填充；第6行第6格 slot50）
     Update:
         material: CHEST
-        slot: 49
+        slot: 50
         name: "&a升级解锁下一页"
         Lore:
             - "&b花费 %money% 金币来解锁第 %page% 页"
+    # 下一页（第6行第5格 slot49）
     Nextpage:
         material: ARROW
-        slot: 51
+        slot: 49
         name: "&a下一页"
         Lore:
             - ""
+    # 上一页（第6行第4格 slot48，仅第 2 页起）
     Prvepage:
         material: ARROW
-        slot: 47
+        slot: 48
         name: "&a上一页"
+        Lore:
+            - ""
+    # 返回上一个菜单（第6行第1格 slot45，羽毛）
+    Back:
+        material: FEATHER
+        name: "&a返回上一个菜单"
         Lore:
             - ""
 
@@ -564,7 +592,7 @@ Crop:
         name: ""
         Lore:
             - "&a点击进入 %name% 仓库"
-    # 翻页（同格：第 1 页下一页 / 第 2 页上一页）
+    # 翻页（同格：第 1 页下一页 / 第 2 页上一页；第6行第5格 slot49）
     Nextpage:
         material: ARROW
         slot: 49
@@ -575,6 +603,12 @@ Crop:
         material: ARROW
         slot: 49
         name: "&a上一页"
+        Lore:
+            - ""
+    # 返回主菜单（第6行第1格 slot45，羽毛）
+    Back:
+        material: FEATHER
+        name: "&a返回主菜单"
         Lore:
             - ""
 
@@ -594,10 +628,10 @@ CropStorage:
         name: "&a点击填充"
         Lore:
             - ""
-    # 返回
+    # 返回（第6行第1格 slot45，羽毛）
     Back:
-        material: ARROW
-        slot: 47
+        material: FEATHER
+        slot: 45
         name: "&a返回农作物仓库"
         Lore:
             - ""

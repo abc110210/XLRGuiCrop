@@ -119,6 +119,12 @@ public final class DatabaseManager {
                     "farm_slot INTEGER DEFAULT -1," +  // 农田全局槽位（非农田操作为 -1）
                     "created_at INTEGER DEFAULT 0," +
                     "updated_at INTEGER DEFAULT 0)");
+            // 农田页内解锁进度：每玩家每页已解锁的种植格数（0-28，第 1 格免费内置 ≥1）
+            st.execute("CREATE TABLE IF NOT EXISTS farm_unlocks (" +
+                    "uuid TEXT NOT NULL," +
+                    "page INTEGER NOT NULL," +
+                    "count INTEGER DEFAULT 0," + // 该页已解锁种植格数（local 0..count-1 为可种植）
+                    "PRIMARY KEY (uuid, page))");
             // 旧库迁移（单事务，防止「迁移成功但置 0 失败」导致重启重复累加）
             conn.setAutoCommit(false);
             try {
@@ -190,6 +196,18 @@ public final class DatabaseManager {
                 }
                 if (!hasStatus) {
                     st.execute("ALTER TABLE compensation ADD COLUMN status TEXT DEFAULT 'PENDING'");
+                }
+            }
+            // 旧库迁移：player_data 补齐农田已解锁页数列（默认 1 页；历史异常数据清零时钳制回 1）
+            try (ResultSet rs = st.executeQuery("PRAGMA table_info(player_data)")) {
+                boolean hasFarmPages = false;
+                while (rs.next()) {
+                    if ("farm_unlocked_pages".equals(rs.getString("name"))) {
+                        hasFarmPages = true;
+                    }
+                }
+                if (!hasFarmPages) {
+                    st.execute("ALTER TABLE player_data ADD COLUMN farm_unlocked_pages INTEGER DEFAULT 1");
                 }
             }
         } catch (SQLException e) {
@@ -605,15 +623,20 @@ public final class DatabaseManager {
         return ok;
     }
 
-    /** 从某作物种子库存扣除，返回实际扣除数；扣减写库失败返回 0（杜绝免费种植）。 */
-    public int consumeSeed(UUID uuid, String cropId, int need) {
+    /**
+     * 从某作物指定种子素材库存扣除，返回实际扣除数；扣减写库失败返回 0（杜绝免费种植）。
+     *
+     * @param seedMaterialName 种子素材材质名（如 "MELON_SEEDS"、"OAK_SAPLING"），对应 crop_stock.item_type
+     */
+    public int consumeSeed(UUID uuid, String cropId, String seedMaterialName, int need) {
         if (need <= 0) {
             return 0;
         }
-        long stock = getCropStock(uuid, cropId, "SEED");
+        long stock = getCropStock(uuid, cropId, seedMaterialName);
         int take = (int) Math.min(stock, need);
-        if (take > 0 && !addCropStock(uuid, cropId, "SEED", -take)) {
-            plugin.getLogger().warning("consumeSeed 扣减失败: uuid=" + uuid + " crop=" + cropId + " need=" + need);
+        if (take > 0 && !addCropStock(uuid, cropId, seedMaterialName, -take)) {
+            plugin.getLogger().warning("consumeSeed 扣减失败: uuid=" + uuid + " crop=" + cropId
+                    + " seed=" + seedMaterialName + " need=" + need);
             return 0;
         }
         return Math.max(0, take);
@@ -864,15 +887,85 @@ public final class DatabaseManager {
         return i;
     }
 
-    /** 某页 28 格是否全部被农田占用（翻页前提）。 */
-    public boolean isFarmPageFull(UUID uuid, int page) {
-        int base = page * ConfigManager.FARM_PAGE_SLOTS;
-        for (int local = 0; local < ConfigManager.FARM_PAGE_SLOTS; local++) {
-            if (!hasFarmSlot(uuid, base + local)) {
-                return false;
-            }
+    /**
+     * 玩家已解锁农田总页数（第 1 页默认解锁；钳制至少 1）。
+     *
+     * @return 页数；查询失败回退 1
+     */
+    public int getFarmUnlockedPages(UUID uuid) {
+        return getUnlockedPages(uuid, "farm_unlocked_pages");
+    }
+
+    /** 幂等增加/保证农田已解锁页数（仅当当前低于目标时才更新，便于启动恢复与自动解锁可安全重入）。 */
+    public boolean setFarmUnlockedPagesAtLeast(UUID uuid, int pages) {
+        ensurePlayer(uuid);
+        int target = Math.max(1, pages);
+        String sql = "UPDATE player_data SET farm_unlocked_pages=? WHERE uuid=? AND farm_unlocked_pages < ?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, target);
+            ps.setString(2, uuid.toString());
+            ps.setInt(3, target);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            logError(e, "setFarmUnlockedPagesAtLeast");
+            return false;
         }
-        return true;
+    }
+    private int getUnlockedPages(UUID uuid, String column) {
+        ensurePlayer(uuid);
+        String sql = "SELECT " + column + " FROM player_data WHERE uuid=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? Math.max(1, rs.getInt(column)) : 1;
+            }
+        } catch (SQLException e) {
+            logError(e, "getUnlockedPages");
+            return 1;
+        }
+    }
+
+    /**
+     * 某页已解锁种植格数（0-28）。第 1 页内置至少 1 格（免费种植格）；查询失败回退默认。
+     *
+     * @return 已解锁格数（local 0..count-1 为可种植格）
+     */
+    public int getUnlockedCount(UUID uuid, int page) {
+        String sql = "SELECT count FROM farm_unlocks WHERE uuid=? AND page=?";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setInt(2, page);
+            try (ResultSet rs = ps.executeQuery()) {
+                int def = page == 0 ? 1 : 0;
+                if (!rs.next()) {
+                    return def;
+                }
+                return Math.max(def, Math.min(ConfigManager.FARM_PAGE_SLOTS, rs.getInt("count")));
+            }
+        } catch (SQLException e) {
+            logError(e, "getUnlockedCount");
+            return page == 0 ? 1 : 0;
+        }
+    }
+
+    /**
+     * 保证某页解锁格数至少为 count（第 1 页免费 1 格；幂等 upsert，可安全重入）。
+     *
+     * @return true 表示写入成功
+     */
+    public boolean setUnlockedCountAtLeast(UUID uuid, int page, int count) {
+        int target = Math.max(page == 0 ? 1 : 0, Math.min(ConfigManager.FARM_PAGE_SLOTS, count));
+        String sql = "INSERT INTO farm_unlocks (uuid, page, count) VALUES (?, ?, ?) " +
+                "ON CONFLICT(uuid, page) DO UPDATE SET count = MAX(count, excluded.count)";
+        try (Connection conn = open(); PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, uuid.toString());
+            ps.setInt(2, page);
+            ps.setInt(3, target);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            logError(e, "setUnlockedCountAtLeast");
+            return false;
+        }
     }
 
     /** 农田升级等级（默认 1）。 */
@@ -1005,7 +1098,7 @@ public final class DatabaseManager {
      *
      * @return true 表示成功（产量已入账、槽位已重置）；false 表示失败（调用方应回滚已扣种子并跳过该农场）
      */
-    public boolean settleHarvest(UUID uuid, int farmSlot, String cropId, List<PlotState> plots, long productGain, long seedGain) {
+    public boolean settleHarvest(UUID uuid, int farmSlot, String cropId, String seedMaterialName, List<PlotState> plots, long productGain, long seedGain) {
         if (!ensurePlayer(uuid)) {
             plugin.getLogger().warning("settleHarvest 玩家行不可用，已放弃该农场: uuid=" + uuid + " farmSlot=" + farmSlot);
             return false;
@@ -1031,7 +1124,7 @@ public final class DatabaseManager {
                     ps.executeBatch();
                 }
                 int p = creditStock(conn, cropId, "PRODUCT", productGain, uuid);
-                int s = creditStock(conn, cropId, "SEED", seedGain, uuid);
+                int s = creditStock(conn, cropId, seedMaterialName, seedGain, uuid);
                 // 入账影响 0 行（玩家行缺失）：回滚并判失败，防止「槽位已重置但产物未入账」
                 if (p <= 0 || s <= 0) {
                     throw new SQLException("入账影响 0 行，玩家行缺失");

@@ -65,9 +65,11 @@ public final class ConfigLoader {
                 int yieldSeed = Math.max(0, gui.getInt("FarmUpdate." + id + ".LV1.SeedDrop", 1));
                 // 生长时长：先按 long 计算避免 int 溢出，再钳制并保证 max >= min
                 int[] grow = growSecRange(c);
+                // 种子素材：支持 seed-materials 列表（多种素材，各自独立仓库）或 seed-material 单值（列表单元素）
+                List<Material> seedMats = seedMaterials(c);
                 // 收割入仓材质：优先取 config 的 harvest-material（未配置为 null）→
                 // 否则查内置映射（如西瓜成熟展示 MELON、入仓 MELON_SLICE）→ 再否则=产物材质
-                Material productMat = material(c, "product-material", material(c, "icon", Material.WHEAT));
+                Material productMat = material(c, "product-material", Material.WHEAT);
                 Material harvestMat = material(c, "harvest-material", null);
                 if (harvestMat == null) {
                     harvestMat = builtinHarvestMaterial(productMat);
@@ -77,8 +79,7 @@ public final class ConfigLoader {
                 }
                 list.add(new CropType(
                         id,
-                        material(c, "icon", Material.WHEAT),
-                        material(c, "seed-material", Material.WHEAT_SEEDS),
+                        seedMats,
                         productMat,
                         harvestMat,
                         str(c, "name", id),
@@ -117,6 +118,34 @@ public final class ConfigLoader {
         }
         Material m = Material.matchMaterial(s.trim());
         return m != null ? m : def;
+    }
+
+    /**
+     * 解析种子素材列表：优先 seed-materials（列表），否则回退 seed-material（单值），均无法解析时用小麦种子兜底。
+     * 非法项跳过。返回顺序即播种自动消耗的优先顺序（靠前者先消耗）。
+     */
+    private static List<Material> seedMaterials(ConfigurationSection c) {
+        List<String> names = c.getStringList("seed-materials");
+        if (names.isEmpty()) {
+            String single = c.getString("seed-material");
+            if (single != null && !single.isBlank()) {
+                names = List.of(single);
+            }
+        }
+        List<Material> list = new ArrayList<>();
+        for (String n : names) {
+            if (n == null || n.isBlank()) {
+                continue;
+            }
+            Material m = Material.matchMaterial(n.trim());
+            if (m != null && !list.contains(m)) {
+                list.add(m);
+            }
+        }
+        if (list.isEmpty()) {
+            list.add(Material.WHEAT_SEEDS);
+        }
+        return list;
     }
 
     /**

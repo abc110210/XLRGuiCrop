@@ -34,6 +34,9 @@ permissions:
   xlr.crop.update.bone:
     description: 可使用 /xlr crop update bone <玩家ID> <页数> 给玩家叠加解锁骨粉页
     default: op
+  xlr.crop.update.farm:
+    description: 可使用 /xlr crop update farm <玩家ID> <页数> 给玩家叠加解锁农田页
+    default: op
   xlr.crop.create.farm.*:
     description: 动态权限，数字 = 可创建的农田上限（如 xlr.crop.create.farm.1 = 只能拥有 1 块地）
     default: false

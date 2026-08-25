@@ -77,38 +77,75 @@ public final class CropManager {
         return Math.min(7, Math.max(0, stage));
     }
 
-    // ================= 种子消耗 =================
+    // ================= 种子消耗（多素材自动按序） =================
 
-    /**
-     * 消耗种子，返回实际消耗数。
-     *
-     * @param warehouseFirst true = 先扣种子仓库、不足扣背包（补种/自动重播）；
-     *                       false = 先扣背包、不足扣种子仓库（创建农田）
-     */
-    public int tryConsumeSeeds(Player player, UUID uuid, String cropId, Material seedMaterial, int need, boolean warehouseFirst) {
-        if (need <= 0) {
-            return 0;
+    /** 单次消耗中「一种素材」的明细：来自仓库/背包各多少（便于落库失败时精确回滚）。 */
+    public static final class SeedPart {
+        public final Material material;
+        public int warehouse;
+        public int backpack;
+
+        SeedPart(Material material, int warehouse, int backpack) {
+            this.material = material;
+            this.warehouse = warehouse;
+            this.backpack = backpack;
         }
-        if (warehouseFirst) {
-            int[] split = consumeSeedsSplit(player, uuid, cropId, seedMaterial, need);
-            return split[0] + split[1];
-        }
-        int fromBackpack = player != null ? consumeBackpackSeeds(player, need, seedMaterial) : 0;
-        int remain = need - fromBackpack;
-        if (remain > 0) {
-            return fromBackpack + db.consumeSeed(uuid, cropId, remain);
-        }
-        return fromBackpack;
     }
 
-    /** 消耗某作物种子并返回 [仓库部分, 背包部分]，便于落库失败时精确回滚仓库部分。 */
-    private int[] consumeSeedsSplit(Player player, UUID uuid, String cropId, Material seedMaterial, int need) {
-        int fromWarehouse = db.consumeSeed(uuid, cropId, need);
-        int fromBackpack = 0;
-        if (fromWarehouse < need && player != null) {
-            fromBackpack = consumeBackpackSeeds(player, need - fromWarehouse, seedMaterial);
+    /** 一次种子消耗的聚合结果：总消耗 + 按素材明细。 */
+    public static final class SeedConsumption {
+        public final List<SeedPart> parts;
+        public final int total;
+
+        SeedConsumption(List<SeedPart> parts, int total) {
+            this.parts = parts;
+            this.total = total;
         }
-        return new int[]{fromWarehouse, fromBackpack};
+    }
+
+    /**
+     * 消耗某作物的种子素材（可为多种，按 {@code ct.getSeedMaterials()} 顺序自动消耗）。
+     *
+     * <p>对每种素材：按 {@code warehouseFirst} 决定先扣仓库还是先扣背包，直到凑够 {@code need}
+     * 或素材耗尽。返回总消耗与按素材明细（回滚用）。
+     *
+     * @param warehouseFirst true = 先扣仓库、不足扣背包（补种/自动重播）；
+     *                       false = 先扣背包、不足扣仓库（创建农田）
+     */
+    public SeedConsumption consumeSeeds(Player player, UUID uuid, CropType ct, int need, boolean warehouseFirst) {
+        List<SeedPart> parts = new ArrayList<>();
+        int total = 0;
+        int remain = need;
+        for (Material mat : ct.getSeedMaterials()) {
+            if (remain <= 0) {
+                break;
+            }
+            int fromWarehouse = 0;
+            int fromBackpack = 0;
+            if (warehouseFirst) {
+                fromWarehouse = db.consumeSeed(uuid, ct.getId(), mat.name(), remain);
+                int rem = remain - fromWarehouse;
+                if (rem > 0 && player != null) {
+                    fromBackpack = consumeBackpackSeeds(player, rem, mat);
+                }
+            } else {
+                fromBackpack = player != null ? consumeBackpackSeeds(player, remain, mat) : 0;
+                int rem = remain - fromBackpack;
+                if (rem > 0) {
+                    fromWarehouse = db.consumeSeed(uuid, ct.getId(), mat.name(), rem);
+                }
+            }
+            int got = fromWarehouse + fromBackpack;
+            if (got > 0) {
+                parts.add(new SeedPart(mat, fromWarehouse, fromBackpack));
+                total += got;
+                remain -= got;
+            }
+            if (remain <= 0) {
+                break;
+            }
+        }
+        return new SeedConsumption(parts, total);
     }
 
     private int consumeBackpackSeeds(Player player, int need, Material seedMaterial) {
@@ -118,7 +155,7 @@ public final class CropManager {
         return need - notTaken;
     }
 
-    /** 统计玩家背包中某作物种子数量。 */
+    /** 统计玩家背包中某材质数量。 */
     public int countBackpackSeeds(Player player, Material seedMaterial) {
         if (player == null) {
             return 0;
@@ -132,18 +169,69 @@ public final class CropManager {
         return count;
     }
 
+    /** 统计某作物全部种子素材在玩家背包的总数。 */
+    public int countBackpackAll(Player player, CropType ct) {
+        if (player == null) {
+            return 0;
+        }
+        int total = 0;
+        for (Material m : ct.getSeedMaterials()) {
+            total += countBackpackSeeds(player, m);
+        }
+        return total;
+    }
+
+    /** 统计某作物全部种子素材在种子仓库的总数（各素材独立仓库累加）。 */
+    public long seedStockAll(UUID uuid, CropType ct) {
+        long total = 0;
+        for (Material m : ct.getSeedMaterials()) {
+            total += db.getCropStock(uuid, ct.getId(), m.name());
+        }
+        return total;
+    }
+
+    /** 退还一次种子消耗：仓库部分退回对应素材仓库，背包部分退回背包（装不下转存仓库），绝不丢失。 */
+    public void refundSeeds(Player player, UUID uuid, CropType ct, SeedConsumption c) {
+        if (c == null || c.total <= 0) {
+            return;
+        }
+        for (SeedPart part : c.parts) {
+            if (part.warehouse > 0) {
+                if (!db.addCropStock(uuid, ct.getId(), part.material.name(), part.warehouse)) {
+                    db.addCompensation(uuid, "SEED", ct.getId(), part.material.name(), part.warehouse, "refundSeeds-warehouse");
+                }
+            }
+            if (part.backpack > 0) {
+                int notRefunded = 0;
+                if (player != null) {
+                    HashMap<Integer, ItemStack> leftover = player.getInventory()
+                            .addItem(new ItemStack(part.material, part.backpack));
+                    notRefunded = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
+                } else {
+                    notRefunded = part.backpack;
+                }
+                if (notRefunded > 0) {
+                    if (!db.addCropStock(uuid, ct.getId(), part.material.name(), notRefunded)) {
+                        db.addCompensation(uuid, "SEED", ct.getId(), part.material.name(), notRefunded, "refundSeeds-backpack");
+                    }
+                }
+            }
+        }
+    }
+
     // ================= 创建农田 =================
 
     /**
-     * 创建农田并种植：消耗全部可用种子（背包优先→种子仓库），有几颗种几格（最多 54 格）。
+     * 在指定农田格创建农田并种植：消耗所有种子素材（背包优先→各素材仓库），有几颗种几格（最多 54 格）。
      *
+     * @param globalIndex 目标农田全局槽位（须已在农田页解锁且空闲，由调用方校验）
      * @return 全局槽位索引；-1 表示无种子、创建失败
      */
-    public int createFarm(Player player, CropType ct) {
+    public int createFarm(Player player, CropType ct, int globalIndex) {
         UUID uuid = player.getUniqueId();
         long available;
         if (ct.isConsumeSeed()) {
-            available = (long) countBackpackSeeds(player, ct.getSeedMaterial()) + db.getCropStock(uuid, ct.getId(), "SEED");
+            available = (long) countBackpackAll(player, ct) + seedStockAll(uuid, ct);
             if (available <= 0) {
                 return -1;
             }
@@ -152,12 +240,13 @@ public final class CropManager {
             available = PLOT_COUNT;
         }
         int plant = (int) Math.min(available, PLOT_COUNT);
-        // 1. 先扣种子（背包优先→仓库），失败直接中止（未建任何数据，无需回滚）
-        int consumed = ct.isConsumeSeed() ? tryConsumeSeeds(player, uuid, ct.getId(), ct.getSeedMaterial(), plant, false) : 0;
-        if (ct.isConsumeSeed() && consumed <= 0) {
+        // 1. 先扣素材（背包优先→各素材仓库），失败直接中止（未建任何数据，无需回滚）
+        SeedConsumption consumed = ct.isConsumeSeed()
+                ? consumeSeeds(player, uuid, ct, plant, false) : new SeedConsumption(new ArrayList<>(), 0);
+        if (ct.isConsumeSeed() && consumed.total <= 0) {
             return -1;
         }
-        int plantCount = ct.isConsumeSeed() ? consumed : plant;
+        int plantCount = ct.isConsumeSeed() ? consumed.total : plant;
         // 2. 准备种植槽：前 plantCount 个空槽设为种植中，其余留空
         long now = System.currentTimeMillis() / 1000;
         List<PlotState> plots = new ArrayList<>(PLOT_COUNT);
@@ -166,8 +255,7 @@ public final class CropManager {
                     ? new PlotState(-1, i, 0, now, ct.randomDurationSec())
                     : new PlotState(-1, i, STAGE_EMPTY, 0, 0));
         }
-        // 3. 单事务：建槽 + 写全部地块，原子落库；失败退还已扣种子（无「有槽无地块」残留）
-        int globalIndex = db.findFirstFreeFarmSlot(uuid);
+        // 3. 单事务：建槽 + 写全部地块，原子落库；失败退还已扣素材（无「有槽无地块」残留）
         if (!db.createFarmTransaction(uuid, globalIndex, ct.getId(), plots)) {
             plugin.getLogger().warning("创建农田落库失败，已退还种子: uuid=" + uuid + " slot=" + globalIndex);
             refundSeeds(player, uuid, ct, consumed);
@@ -278,16 +366,14 @@ public final class CropManager {
         }
         // 不消耗种子的作物：直接补满，无需扣种
         int seedCost = ct.isConsumeSeed() ? empty : 0;
-        int[] consumed = new int[]{0, 0};
-        int consumedTotal = 0;
+        SeedConsumption consumed = new SeedConsumption(new ArrayList<>(), 0);
         if (seedCost > 0) {
-            consumed = consumeSeedsSplit(player, uuid, ct.getId(), ct.getSeedMaterial(), seedCost);
-            consumedTotal = consumed[0] + consumed[1];
-            if (consumedTotal <= 0) {
+            consumed = consumeSeeds(player, uuid, ct, seedCost, true);
+            if (consumed.total <= 0) {
                 return -1;
             }
         }
-        int replantTarget = ct.isConsumeSeed() ? consumedTotal : empty;
+        int replantTarget = ct.isConsumeSeed() ? consumed.total : empty;
         int replanted = 0;
         for (PlotState p : plots) {
             if (replanted >= replantTarget) {
@@ -303,37 +389,25 @@ public final class CropManager {
         if (db.savePlots(uuid, farmSlot, plots)) {
             return replanted;
         }
-        // 落库失败：退还已扣仓库种子（对应作物种子库存）+ 背包种子（真实物品，否则会凭空消失）；
-        // 背包放不下部分转存对应作物种子仓库，绝不让真实物品丢失
+        // 落库失败：退还已扣仓库素材（对应素材仓库）+ 背包素材（真实物品，否则会凭空消失）；
+        // 背包放不下部分按素材转存对应素材仓库，绝不让真实物品丢失
         plugin.getLogger().warning("补种落库失败，已退还种子: uuid=" + uuid + " farmSlot=" + farmSlot);
-        if (!db.addCropStock(uuid, ct.getId(), "SEED", consumed[0])) {
-            db.addCompensation(uuid, "SEED", ct.getId(), "SEED", consumed[0], "replant-rollback");
-        }
-        if (consumed[1] > 0) {
-            HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(new ItemStack(ct.getSeedMaterial(), consumed[1]));
-            int notRefunded = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
-            if (notRefunded > 0) {
-                if (!db.addCropStock(uuid, ct.getId(), "SEED", notRefunded)) {
-                    db.addCompensation(uuid, "SEED", ct.getId(), "SEED", notRefunded, "replant-rollback-backpack");
-                }
-                plugin.getLogger().warning("补种回滚背包种子部分转存仓库: uuid=" + uuid + " farmSlot=" + farmSlot + " count=" + notRefunded);
-            }
-        }
+        refundSeeds(player, uuid, ct, consumed);
         return -1;
     }
 
     /** 退还已扣种子：优先退回背包（同 tick 刚 removeItem 腾出空间），装不下的退回对应作物种子仓库，绝不丢失。 */
     private void refundSeeds(Player player, UUID uuid, CropType ct, int count) {
-        if (count <= 0) {
-            return;
+        refundSeeds(player, uuid, ct, countParts(ct, count));
+    }
+
+    /** 按主素材构建一个单素材消耗明细（兼容旧调用：只退回主素材 count 个）。 */
+    private SeedConsumption countParts(CropType ct, int count) {
+        List<SeedPart> parts = new ArrayList<>();
+        if (count > 0) {
+            parts.add(new SeedPart(ct.getSeedMaterial(), count, 0));
         }
-        HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(new ItemStack(ct.getSeedMaterial(), count));
-        int notRefunded = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
-        if (notRefunded > 0) {
-            if (!db.addCropStock(uuid, ct.getId(), "SEED", notRefunded)) {
-                db.addCompensation(uuid, "SEED", ct.getId(), "SEED", notRefunded, "refundSeeds");
-            }
-        }
+        return new SeedConsumption(parts, count);
     }
 
     // ================= 定时结算 =================
@@ -392,9 +466,9 @@ public final class CropManager {
         boolean slotChanged = false;
         long productGain = 0L;
         long seedGain = 0L;
-        int seedsFromWarehouse = 0;
-        int seedsFromBackpack = 0;
         int consumedBonemeal = 0;
+        // 本次结算为自动重播而消耗的全部种子素材汇总（按素材累加仓库/背包部分，回滚用）
+        HashMap<Material, int[]> consumedMap = new HashMap<>();
         for (PlotState p : plots) {
             if (p.stage == STAGE_EMPTY) {
                 continue;
@@ -416,15 +490,18 @@ public final class CropManager {
             int cycles = (int) cyclesL;
             productGain += productYield * cycles;
             seedGain += seedYield * cycles;
-            // 重播下一周期：消耗 1 粒种子（仓库→背包），不足则留空；不消耗种子的作物直接重播
+            // 重播下一周期：消耗 1 粒种子素材（仓库→背包，多素材按序），不足则留空；不消耗种子的作物直接重播
             int seedCost = ct.isConsumeSeed() ? ConfigManager.REPLANT_COST_SEED : 0;
-            int[] consumed = new int[]{0, 0};
+            SeedConsumption c = new SeedConsumption(new ArrayList<>(), 0);
             if (seedCost > 0) {
-                consumed = consumeSeedsSplit(player, uuid, ct.getId(), ct.getSeedMaterial(), seedCost);
-                seedsFromWarehouse += consumed[0];
-                seedsFromBackpack += consumed[1];
+                c = consumeSeeds(player, uuid, ct, seedCost, true);
+                for (SeedPart sp : c.parts) {
+                    int[] a = consumedMap.computeIfAbsent(sp.material, k -> new int[2]);
+                    a[0] += sp.warehouse;
+                    a[1] += sp.backpack;
+                }
             }
-            if (consumed[0] + consumed[1] >= seedCost) {
+            if (c.total >= seedCost) {
                 // 保留本周期未完成的剩余时间，继续推进新周期
                 // 防御：duration_sec=0 的异常数据不可取模（除零），按 max(1) 处理
                 long remainder = elapsed % Math.max(1, p.durationSec);
@@ -452,25 +529,20 @@ public final class CropManager {
         if (!slotChanged) {
             return false;
         }
-        // 原子结算：槽位 upsert + 产物/种子入账 单事务；失败则退还仓库种子并跳过，防重复收割
-        if (db.settleHarvest(uuid, fs, ct.getId(), plots, productGain, seedGain)) {
+        // 原子结算：槽位 upsert + 产物入 PRODUCT、种子回主素材（seed-material[0]）单事务；失败退还重播素材并跳过，防重复收割
+        String mainSeedMat = ct.getSeedMaterial().name();
+        if (db.settleHarvest(uuid, fs, ct.getId(), mainSeedMat, plots, productGain, seedGain)) {
             return true;
         }
-        // 落库失败：退还仓库种子（对应作物种子库存）+ 背包种子（真实物品，否则会凭空消失）+ 已扣骨粉；
-        // 背包放不下部分转存对应作物种子仓库，绝不让真实物品丢失
-        if (!db.addCropStock(uuid, ct.getId(), "SEED", seedsFromWarehouse)) {
-            db.addCompensation(uuid, "SEED", ct.getId(), "SEED", seedsFromWarehouse, "settle-rollback");
+        // 落库失败：退还为自动重播而扣的所有种子素材（仓库部分回对应素材仓库、背包部分退回背包）+ 已扣骨粉；
+        // 背包放不下部分按素材转存对应素材仓库，绝不让真实物品丢失
+        int settleTotal = 0;
+        List<SeedPart> rollbackParts = new ArrayList<>();
+        for (var e : consumedMap.entrySet()) {
+            rollbackParts.add(new SeedPart(e.getKey(), e.getValue()[0], e.getValue()[1]));
+            settleTotal += e.getValue()[0] + e.getValue()[1];
         }
-        if (seedsFromBackpack > 0) {
-            HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(new ItemStack(ct.getSeedMaterial(), seedsFromBackpack));
-            int notRefunded = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
-            if (notRefunded > 0) {
-                if (!db.addCropStock(uuid, ct.getId(), "SEED", notRefunded)) {
-                    db.addCompensation(uuid, "SEED", ct.getId(), "SEED", notRefunded, "settle-rollback-backpack");
-                }
-                plugin.getLogger().warning("收割回滚背包种子部分转存仓库: uuid=" + uuid + " farmSlot=" + fs + " count=" + notRefunded);
-            }
-        }
+        refundSeeds(player, uuid, ct, new SeedConsumption(rollbackParts, settleTotal));
         if (consumedBonemeal > 0 && !db.addBonemeal(uuid, consumedBonemeal)) {
             db.addCompensation(uuid, "BONEMEAL", null, null, consumedBonemeal, "settle-rollback-bonemeal");
         }

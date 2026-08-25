@@ -66,7 +66,7 @@ public final class Shan extends JavaPlugin {
             replayCompensations();
         }, 40L);
 
-        getLogger().info("XLRGuiCrop enabled (v" + getDescription().getVersion() + ").");
+        getLogger().info("Welcome to use the Xlr Crop plugin. Author: shan. Plugin loaded successfully!");
     }
 
     @Override
@@ -113,6 +113,10 @@ public final class Shan extends JavaPlugin {
                 } else if ("BONE_UNLOCK".equals(op.kind)) {
                     done = db.getUnlockedPages(op.uuid) >= op.targetValue
                             || db.setUnlockedPagesAtLeast(op.uuid, op.targetValue);
+                } else if ("FARM_UNLOCK".equals(op.kind)) {
+                    // farm_slot 字段复用为农田页 index
+                    done = db.getUnlockedCount(op.uuid, op.farmSlot) >= op.targetValue
+                            || db.setUnlockedCountAtLeast(op.uuid, op.farmSlot, op.targetValue);
                 } else {
                     done = false;
                 }

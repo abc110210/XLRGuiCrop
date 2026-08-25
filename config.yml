@@ -24,6 +24,10 @@ farm:
   # 玩家默认可拥有的农田数量上限
   # （拥有动态权限 xlr.crop.create.farm.<数字> 的玩家按权限数字，见 plugin.yml）
   default-max-farms: 1
+  # 农田页内「黄色待解锁批」的格数（一次付费解锁一批；默认 3 个）
+  unlock-batch: 3
+  # 解锁一批黄色种植格所需金币（config.yml 数值配置）
+  unlock-price: 1000
 
 # ---------- 仓库 ----------
 warehouse:
@@ -40,9 +44,8 @@ bonemeal:
 crops:
   # 作物 id（唯一标识，命令 /xlr crop create <id> 与 DB 使用，用小写英文）
   wheat:
-    # 作物图标材质（Material 名），用于农田/创建/生长界面展示
-    icon: WHEAT
-    # 种植/补种/重播消耗的种子材质（Material 名）——生长前期图标也用它
+    # 种植/补种/重播消耗的种子材质（Material 名）——也是刚种下/未成熟的图标。
+    # 注：原 icon 配置已废弃，界面图标统一用种子素材（种下）与产物材质（成熟）
     seed-material: WHEAT_SEEDS
     # 收割产物材质（Material 名）——成熟图标、仓库展示/取出用它
     product-material: WHEAT
@@ -252,8 +255,13 @@ crops:
     show-stage-change: false
     show-product-stage: 3
   apple:
-    icon: APPLE
-    seed-material: APPLE
+    # 示例：多种子素材（需求2）——苹果可用多种树苗播种，每种素材都有独立种子仓库，
+    # 播种（创建/补种/自动重播）时按此处顺序自动消耗（背包优先、各素材仓库其次）。
+    # 也可用单值 seed-material 配置一种素材。
+    seed-materials:
+      - OAK_SAPLING
+      - BIRCH_SAPLING
+      - SPRUCE_SAPLING
     product-material: APPLE
     name: "苹果"
     farm-name: "苹果农田"
@@ -270,6 +278,10 @@ message:
   farm-full: "&c所有农田页已满，无法继续创建农田！"
   farm-limit: "&c你最多只能拥有 %max% 块农田！"
   page-locked: "&c当前页 %page-slots% 格农田已满后才能进入下一页！"
+  farm-page-locked: "&c你尚未解锁第 %page% 页农田。"
+  farm-unlock-done: "&a已花费 %cost% 金币解锁 %count% 个种植格！"
+  farm-unlock-no-money: "&c金币不足，解锁下一批种植格需要 %cost% 金币！"
+  farm-unlock-red: "&c请先解锁前置种植格，才可继续扩建。"
   no-seed: "&c%seedname%不足（种子仓库 + 背包均不够）！"
   replant-done: "&a已补种 %count% 格，消耗 %seed% 粒%seedname%。"
   replant-empty: "&e该农田没有需要补种的格子。"
@@ -304,6 +316,7 @@ message:
     - "&e/xlr crop gui &7- 打开农作物仓库（查看 / 取出产物与种子）"
     - "&e/xlr crop bone &7- 打开骨粉储存器（存入 / 取出 / 金币解锁页数）"
     - "&e/xlr crop update bone <玩家ID> <页数> &7- 管理员叠加解锁骨粉页"
+    - "&e/xlr crop update farm <玩家ID> <页数> &7- 管理员叠加解锁农田页"
     - "&e/xlr crop comp [list|replay <id>|done <id>] &7- 管理员处理补偿台账"
     - "&e/xlr crop reload &7- 重载配置文件（管理员）"
     - "&e/xlr crop help &7- 显示本帮助"

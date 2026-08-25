@@ -113,15 +113,33 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 gui.openMenu(player);
             }
             case "update" -> {
-                if (!player.hasPermission("xlr.crop.update.bone")) {
-                    player.sendMessage(ConfigManager.MSG_NO_PERM);
+                if (args.length < 4) {
+                    player.sendMessage("§c用法: /xlr crop update (bone|farm) <玩家ID> <数值>");
                     return;
                 }
-                if (args.length < 5 || !"bone".equalsIgnoreCase(args[2])) {
-                    player.sendMessage("§c用法: /xlr crop update bone <玩家ID> <解锁页数>");
-                    return;
+                if ("farm".equalsIgnoreCase(args[2])) {
+                    if (!player.hasPermission("xlr.crop.update.farm")) {
+                        player.sendMessage(ConfigManager.MSG_NO_PERM);
+                        return;
+                    }
+                    if (args.length < 5) {
+                        player.sendMessage("§c用法: /xlr crop update farm <玩家ID> <增加农田页数>");
+                        return;
+                    }
+                    updateFarmPages(player, args[3], args[4]);
+                } else if ("bone".equalsIgnoreCase(args[2])) {
+                    if (!player.hasPermission("xlr.crop.update.bone")) {
+                        player.sendMessage(ConfigManager.MSG_NO_PERM);
+                        return;
+                    }
+                    if (args.length < 5) {
+                        player.sendMessage("§c用法: /xlr crop update bone <玩家ID> <解锁页数>");
+                        return;
+                    }
+                    updateBonemealPages(player, args[3], args[4]);
+                } else {
+                    player.sendMessage("§c用法: /xlr crop update (bone|farm) <玩家ID> <数值>");
                 }
-                updateBonemealPages(player, args[3], args[4]);
             }
             case "comp" -> {
                 if (!player.hasPermission("xlr.crop.comp")) {
@@ -160,34 +178,52 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
             player.sendMessage("§c未知作物: " + typeId + " §7（当前支持: " + String.join("、", CropRegistry.all().keySet()) + "）");
             return;
         }
-        // 农田上限：动态权限 xlr.crop.create.farm.<N> 或默认配置
-        int maxFarms = ConfigManager.allowedFarms(player);
-        int farmCount = db.getFarmCount(uuid);
-        if (farmCount < 0) {
-            // 查询失败：阻止创建，防止 DB 故障时绕过农田上限
-            player.sendMessage(ConfigManager.MSG_DB_ERROR);
+        // 委托 GuiManager：在首个空闲已解锁格创建（上限/扣种子/提示在内部统一处理）
+        gui.createCropCommand(player, ct);
+    }
+
+    /**
+     * 农田已解锁页数叠加：/xlr crop update farm <玩家ID> <页数>。
+     * 新增页即解锁，且新页第 1 格免费（可种植）。
+     */
+    private void updateFarmPages(Player sender, String targetName, String countStr) {
+        int delta;
+        try {
+            delta = Integer.parseInt(countStr);
+        } catch (NumberFormatException e) {
+            sender.sendMessage("§c增加页数必须为数字。");
             return;
         }
-        if (farmCount >= maxFarms) {
-            player.sendMessage(ConfigManager.MSG_FARM_LIMIT.replace("%max%", String.valueOf(maxFarms)));
+        if (delta <= 0) {
+            sender.sendMessage("§c增加页数必须大于 0。");
             return;
         }
-        // 创建农田：扣种子（背包优先→仓库），有几颗种几格
-        int globalIndex = cropManager.createFarm(player, ct);
-        if (globalIndex < 0) {
-            player.sendMessage(ConfigManager.MSG_NO_SEED.replace("%seedname%", ct.getName() + "种子"));
+        Player online = Bukkit.getPlayerExact(targetName);
+        UUID targetUuid;
+        if (online != null) {
+            targetUuid = online.getUniqueId();
+        } else {
+            OfflinePlayer op = Bukkit.getOfflinePlayer(targetName);
+            if (!op.hasPlayedBefore()) {
+                sender.sendMessage(ConfigManager.MSG_PLAYER_NOT_FOUND.replace("%player%", targetName));
+                return;
+            }
+            targetUuid = op.getUniqueId();
+        }
+        int current = db.getFarmUnlockedPages(targetUuid);
+        // 防溢出：long 计算后钳制 int 上限
+        long sum = (long) Math.max(1, current) + delta;
+        int total = sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
+        if (!db.setFarmUnlockedPagesAtLeast(targetUuid, total)) {
+            sender.sendMessage(ConfigManager.MSG_DB_ERROR);
             return;
         }
-        int planted = CropManager.PLOT_COUNT - cropManager.countEmptyPlots(uuid, globalIndex);
-        int page = globalIndex / ConfigManager.FARM_PAGE_SLOTS + 1;
-        int slot = globalIndex % ConfigManager.FARM_PAGE_SLOTS + 1;
-        player.sendMessage(ConfigManager.MSG_CROP_CREATED
-                .replace("%farmname%", ct.getFarmName())
-                .replace("%page%", String.valueOf(page))
-                .replace("%slot%", String.valueOf(slot))
-                .replace("%replant%", String.valueOf(planted)));
-        // 创建后跳转到对应农田页查看
-        gui.openFarm(player, globalIndex / ConfigManager.FARM_PAGE_SLOTS);
+        sender.sendMessage("§a已为玩家 §f%player% §a增加 §f%count% §a页农田解锁（当前共 §f%total% §a页）。"
+                .replace("%player%", targetName)
+                .replace("%count%", String.valueOf(delta))
+                .replace("%total%", String.valueOf(total)));
+        // 管理操作审计
+        db.addOpLog(targetUuid, "FARM_PAGES", "by=" + sender.getName() + " delta=" + delta + " total=" + total);
     }
 
     /** 骨粉页数叠加解锁：/xlr crop update bone <玩家ID> <页数>。 */
@@ -305,7 +341,7 @@ public final class CommandManager implements CommandExecutor, TabCompleter {
                 return filter(new ArrayList<>(CropRegistry.all().keySet()), args[2]);
             }
             if (args.length == 3 && "update".equalsIgnoreCase(args[1])) {
-                return filter(List.of("bone"), args[2]);
+                return filter(List.of("bone", "farm"), args[2]);
             }
             if (args.length == 3 && "comp".equalsIgnoreCase(args[1])) {
                 return filter(List.of("list", "replay", "done"), args[2]);

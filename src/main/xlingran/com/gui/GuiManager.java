@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -54,38 +55,43 @@ public final class GuiManager implements Listener {
     /** GUI 类型。 */
     public enum GuiType { FARM, GROWTH, FARM_MANAGE, CREATE_CROP, CROP_MENU, BONEMEAL, WAREHOUSE, MENU }
 
-    /** 作物仓库条目：某作物的 种子(SEED) 或 产物(PRODUCT) 库存（农作物仓库按作物动态生成）。 */
+    /** 作物仓库条目：某作物的 具体素材种子(材质名) 或 产物(PRODUCT) 库存。 */
     public static final class WarehouseResource {
         private final String cropId;
-        private final String itemType;
+        private final String itemType;   // "PRODUCT" 或具体种子素材材质名（如 "MELON_SEEDS"），对应 crop_stock.item_type
+        private final Material material; // 展示/存入/取出材质
 
-        private WarehouseResource(String cropId, String itemType) {
+        private WarehouseResource(String cropId, String itemType, Material material) {
             this.cropId = cropId;
             this.itemType = itemType;
+            this.material = material;
         }
 
-        static WarehouseResource of(String cropId, String itemType) {
-            return new WarehouseResource(cropId, itemType);
+        static WarehouseResource seedOf(String cropId, Material material) {
+            return new WarehouseResource(cropId, material.name(), material);
+        }
+
+        static WarehouseResource productOf(String cropId) {
+            CropType ct = CropRegistry.get(cropId);
+            Material m = ct == null ? Material.WHEAT : ct.getHarvestMaterial();
+            return new WarehouseResource(cropId, "PRODUCT", m);
         }
 
         public String getCropId() { return cropId; }
 
+        /** 仓库存储类型：产物为 "PRODUCT"，种子素材为该素材材质名。 */
         public String getItemType() { return itemType; }
 
-        /** 展示材质：SEED 用作物种子材料，PRODUCT 用收割入仓材质（如西瓜=西瓜片 MELON_SLICE）。 */
-        public Material getMaterial() {
-            CropType ct = CropRegistry.get(cropId);
-            if (ct == null) {
-                return "SEED".equals(itemType) ? Material.WHEAT_SEEDS : Material.WHEAT;
-            }
-            return "SEED".equals(itemType) ? ct.getSeedMaterial() : ct.getHarvestMaterial();
-        }
+        public boolean isProduct() { return "PRODUCT".equals(itemType); }
 
-        /** 仓库标题（如「小麦仓库」/「小麦种子仓库」）。 */
+        /** 展示 / 取出 / 填充材质。 */
+        public Material getMaterial() { return material; }
+
+        /** 仓库标题（如「苹果种子仓库」/「苹果仓库」）。 */
         public String getTitle() {
             CropType ct = CropRegistry.get(cropId);
             String name = ct == null ? cropId : ct.getName();
-            return name + ("SEED".equals(itemType) ? "种子仓库" : "仓库");
+            return name + (isProduct() ? "仓库" : "种子仓库");
         }
     }
 
@@ -96,21 +102,29 @@ public final class GuiManager implements Listener {
         private final int page;
         private final int farmSlot;
         private final WarehouseResource resource;
-        /** 骨粉 GUI 是否从农田进入（决定第 1 页「上一页」的返回目标：农田 / 主菜单）。 */
-        private final boolean fromFarm;
-        private Inventory inventory;
+        /** 创建农田视图：选中介质后要落到的目标农田格（全局槽位）；-1 表示自动取首个空闲已解锁格。 */
+        private final int createSlot;
+        /** 骨粉 GUI 是否从农田进入（翻页/解锁后重开页面时保留返回目标）。 */
+        private final boolean farmOrigin;
+        /** 返回导航：ESC 或羽毛「返回上一个菜单」时执行的打开动作（可为 null=根级关闭）。 */
+        private Runnable back;
 
         GuiHolder(GuiType type, UUID uuid, int page, int farmSlot, WarehouseResource resource) {
-            this(type, uuid, page, farmSlot, resource, false);
+            this(type, uuid, page, farmSlot, resource, -1, false);
         }
 
-        GuiHolder(GuiType type, UUID uuid, int page, int farmSlot, WarehouseResource resource, boolean fromFarm) {
+        GuiHolder(GuiType type, UUID uuid, int page, int farmSlot, WarehouseResource resource, int createSlot) {
+            this(type, uuid, page, farmSlot, resource, createSlot, false);
+        }
+
+        GuiHolder(GuiType type, UUID uuid, int page, int farmSlot, WarehouseResource resource, int createSlot, boolean farmOrigin) {
             this.type = type;
             this.uuid = uuid;
             this.page = page;
             this.farmSlot = farmSlot;
             this.resource = resource;
-            this.fromFarm = fromFarm;
+            this.createSlot = createSlot;
+            this.farmOrigin = farmOrigin;
         }
 
         public GuiType getType() { return type; }
@@ -123,7 +137,13 @@ public final class GuiManager implements Listener {
 
         public WarehouseResource getResource() { return resource; }
 
-        public boolean isFromFarm() { return fromFarm; }
+        public int getCreateSlot() { return createSlot; }
+
+        public boolean isFromFarm() { return farmOrigin; }
+
+        public Runnable getBack() { return back; }
+
+        void setBack(Runnable back) { this.back = back; }
 
         void setInventory(Inventory inv) { this.inventory = inv; }
 
@@ -167,25 +187,39 @@ public final class GuiManager implements Listener {
 
     // ================= 打开入口 =================
 
-    /** 打开农田 GUI 指定页（第 1 页 = 0；需 xlr.crop.farm）。 */
+    /** 打开农田 GUI 指定页（第 1 页 = 0；需 xlr.crop.farm）。含页解锁守卫、第 1 格免费解锁、满页自解锁下一页、返回主菜单导航。 */
     public void openFarm(Player player, int page) {
         if (!player.hasPermission("xlr.crop.farm")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
             return;
         }
         pendingDelete.remove(player.getUniqueId());
+        UUID uuid = player.getUniqueId();
+        int unlockedPages = db.getFarmUnlockedPages(uuid);
         if (page < 0) {
             page = 0;
         }
-        UUID uuid = player.getUniqueId();
+        if (page > unlockedPages - 1) {
+            // 仅能进入已解锁页（未解锁的下一页点按钮会有提示，不进入）
+            page = Math.max(0, unlockedPages - 1);
+        }
+        // 每页第 1 格免费解锁（绿色可种植）
+        if (db.getUnlockedCount(uuid, page) < ConfigManager.FARM_UNLOCK_FREE) {
+            db.setUnlockedCountAtLeast(uuid, page, ConfigManager.FARM_UNLOCK_FREE);
+        }
+        // 当前页 28 格全部解锁后才自动解锁下一页（未确定项，采用「满页→自动解锁下一页」）
+        if (db.getUnlockedCount(uuid, page) >= ConfigManager.FARM_PAGE_SLOTS) {
+            db.setFarmUnlockedPagesAtLeast(uuid, page + 2);
+        }
         GuiHolder h = new GuiHolder(GuiType.FARM, uuid, page, -1, null);
+        h.setBack(() -> openMenu(player));
         Inventory inv = Bukkit.createInventory(h, 54, farmTitle(page));
         h.setInventory(inv);
         renderFarm(inv, h);
         player.openInventory(inv);
     }
 
-    /** 打开二级生长 GUI（farmSlot 为全局槽位索引；需 xlr.crop.farm）。 */
+    /** 打开二级生长 GUI（farmSlot 为全局槽位索引；需 xlr.crop.farm）。ESC 返回农田页。 */
     public void openGrowth(Player player, int farmSlot) {
         if (!player.hasPermission("xlr.crop.farm")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
@@ -200,6 +234,7 @@ public final class GuiManager implements Listener {
         }
         CropType ct = CropRegistry.get(cropId);
         GuiHolder h = new GuiHolder(GuiType.GROWTH, uuid, 0, farmSlot, null);
+        h.setBack(() -> openFarm(player, farmSlot / ConfigManager.FARM_PAGE_SLOTS));
         String growthTitle = ConfigManager.GUI_GROWTH_TITLE.contains("%farmname%")
                 ? ConfigManager.GUI_GROWTH_TITLE.replace("%farmname%", ct == null ? "" : ct.getFarmName())
                 : (ct == null ? ConfigManager.GUI_GROWTH_TITLE : ct.getFarmName());
@@ -209,7 +244,7 @@ public final class GuiManager implements Listener {
         player.openInventory(inv);
     }
 
-    /** 打开农田管理 GUI（farmSlot 为全局槽位索引；需 xlr.crop.farm）。 */
+    /** 打开农田管理 GUI（farmSlot 为全局槽位索引；需 xlr.crop.farm）。ESC 返回农田页。 */
     public void openFarmManage(Player player, int farmSlot) {
         if (!player.hasPermission("xlr.crop.farm")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
@@ -222,13 +257,14 @@ public final class GuiManager implements Listener {
             return;
         }
         GuiHolder h = new GuiHolder(GuiType.FARM_MANAGE, uuid, 0, farmSlot, null);
+        h.setBack(() -> openFarm(player, farmSlot / ConfigManager.FARM_PAGE_SLOTS));
         Inventory inv = Bukkit.createInventory(h, 27, ConfigManager.GUI_FARM_MANAGE_TITLE);
         h.setInventory(inv);
         renderFarmManage(inv, h);
         player.openInventory(inv);
     }
 
-    /** 打开主菜单 GUI（需 xlr.crop.menu）。 */
+    /** 打开主菜单 GUI（需 xlr.crop.menu）。根级，无返回。 */
     public void openMenu(Player player) {
         if (!player.hasPermission("xlr.crop.menu")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
@@ -243,22 +279,32 @@ public final class GuiManager implements Listener {
         player.openInventory(inv);
     }
 
-    /** 打开创建农田 GUI（需 xlr.crop.create）。 */
+    /** 打开创建农田 GUI（无目标槽位时自动取首个空闲已解锁格；需 xlr.crop.create）。ESC 返回对应农田页。 */
     public void openCreateCrop(Player player) {
+        openCreateCrop(player, -1);
+    }
+
+    /**
+     * 打开创建农田 GUI。
+     *
+     * @param createSlot 选中介质后落到指定的农田全局槽位（点击农田页绿格时传入）；-1 表示自动取首个空闲已解锁格
+     */
+    public void openCreateCrop(Player player, int createSlot) {
         if (!player.hasPermission("xlr.crop.create")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
             return;
         }
         pendingDelete.remove(player.getUniqueId());
         UUID uuid = player.getUniqueId();
-        GuiHolder h = new GuiHolder(GuiType.CREATE_CROP, uuid, 0, -1, null);
+        GuiHolder h = new GuiHolder(GuiType.CREATE_CROP, uuid, 0, -1, null, createSlot);
+        h.setBack(() -> openFarm(player, createSlot < 0 ? 0 : createSlot / ConfigManager.FARM_PAGE_SLOTS));
         Inventory inv = Bukkit.createInventory(h, 54, ConfigManager.GUI_CREATE_CROP_TITLE);
         h.setInventory(inv);
         renderCreateCrop(inv);
         player.openInventory(inv);
     }
 
-    /** 打开农作物仓库 GUI（每页 28 格，入口见 cropMenuEntries；需 xlr.crop.gui）。 */
+    /** 打开农作物仓库 GUI（每页 28 格，入口见 cropMenuEntries；需 xlr.crop.gui）。ESC 返回主菜单。 */
     public void openCropMenu(Player player, int page) {
         if (!player.hasPermission("xlr.crop.gui")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
@@ -276,6 +322,7 @@ public final class GuiManager implements Listener {
         }
         UUID uuid = player.getUniqueId();
         GuiHolder h = new GuiHolder(GuiType.CROP_MENU, uuid, page, -1, null);
+        h.setBack(() -> openMenu(player));
         Inventory inv = Bukkit.createInventory(h, 54, cropMenuTitle(page));
         h.setInventory(inv);
         renderCropMenu(inv, h);
@@ -287,7 +334,11 @@ public final class GuiManager implements Listener {
         openBonemeal(player, page, false);
     }
 
-    /** 打开骨粉储存器 GUI（需 xlr.crop.bone）；fromFarm=true 表示从农田进入（第 1 页「上一页」返回农田，否则返回主菜单）。 */
+    /**
+     * 打开骨粉储存器 GUI（需 xlr.crop.bone）。
+     *
+     * @param fromFarm true = 从农田进入（返回时回农田第 1 页）；false = 从主菜单进入（返回主菜单）
+     */
     public void openBonemeal(Player player, int page, boolean fromFarm) {
         if (!player.hasPermission("xlr.crop.bone")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
@@ -303,14 +354,15 @@ public final class GuiManager implements Listener {
             // 下限钳制：历史异常数据 unlocked=0 时不落到 -1
             page = Math.max(0, unlocked - 1);
         }
-        GuiHolder h = new GuiHolder(GuiType.BONEMEAL, uuid, page, -1, null, fromFarm);
+        GuiHolder h = new GuiHolder(GuiType.BONEMEAL, uuid, page, -1, null, -1, fromFarm);
+        h.setBack(fromFarm ? () -> openFarm(player, 0) : () -> openMenu(player));
         Inventory inv = Bukkit.createInventory(h, 54, pageTitle(ConfigManager.GUI_BONEMEAL_TITLE, page));
         h.setInventory(inv);
         renderBonemeal(inv, h);
         player.openInventory(inv);
     }
 
-    /** 打开仓库 GUI（单页；需 xlr.crop.gui；cropId + itemType=SEED/PRODUCT）。 */
+    /** 打开仓库 GUI（单页；需 xlr.crop.gui）。itemType 为 "PRODUCT" 或具体种子素材材质名。ESC 返回农作物仓库。 */
     public void openWarehouse(Player player, String cropId, String itemType) {
         if (!player.hasPermission("xlr.crop.gui")) {
             player.sendMessage(ConfigManager.MSG_NO_PERM);
@@ -318,8 +370,11 @@ public final class GuiManager implements Listener {
         }
         pendingDelete.remove(player.getUniqueId());
         UUID uuid = player.getUniqueId();
-        WarehouseResource resource = WarehouseResource.of(cropId, itemType);
+        WarehouseResource resource = "PRODUCT".equals(itemType)
+                ? WarehouseResource.productOf(cropId)
+                : WarehouseResource.seedOf(cropId, Material.matchMaterial(itemType));
         GuiHolder h = new GuiHolder(GuiType.WAREHOUSE, uuid, 0, -1, resource);
+        h.setBack(() -> openCropMenu(player, 0));
         Inventory inv = Bukkit.createInventory(h, 54, ConfigManager.GUI_WAREHOUSE_TITLE.replace("%Farmitem%", resource.getTitle()));
         h.setInventory(inv);
         renderWarehouse(inv, h);
@@ -346,19 +401,36 @@ public final class GuiManager implements Listener {
     private void renderFarm(Inventory inv, GuiHolder h) {
         ItemStack[] contents = new ItemStack[54];
         Arrays.fill(contents, frame());
-        Map<Integer, String> slots = db.getFarmSlots(h.getUuid());
+        UUID uuid = h.getUuid();
+        int page = h.getPage();
+        int unlocked = db.getUnlockedCount(uuid, page);
+        Map<Integer, String> slots = db.getFarmSlots(uuid);
         for (int local = 0; local < ConfigManager.FARM_PAGE_SLOTS; local++) {
             int raw = INNER_SLOTS[local];
-            int globalIndex = h.getPage() * ConfigManager.FARM_PAGE_SLOTS + local;
+            int globalIndex = page * ConfigManager.FARM_PAGE_SLOTS + local;
             String cropId = slots.get(globalIndex);
-            contents[raw] = cropId != null
-                    ? farmIcon(CropRegistry.get(cropId), db.getFarmLevel(h.getUuid(), globalIndex))
-                    : null;
+            if (cropId != null) {
+                // 该格已种植农田
+                contents[raw] = farmIcon(CropRegistry.get(cropId), db.getFarmLevel(uuid, globalIndex));
+            } else if (local < unlocked) {
+                // 绿色：已解锁可种植格（第 1 格为免费种植格）
+                contents[raw] = freeTile(local == 0);
+            } else if (unlocked < ConfigManager.FARM_PAGE_SLOTS
+                    && local < unlocked + ConfigManager.FARM_UNLOCK_BATCH) {
+                // 黄色：当前待解锁批（付费购买这批）
+                contents[raw] = yellowTile();
+            } else {
+                // 红色：前置未解锁，需先解锁前一批
+                contents[raw] = redTile();
+            }
         }
-        contents[ConfigManager.FARM_PREV_SLOT] = h.getPage() > 0
+        // 返回上一个菜单（第6行第1格，羽毛）
+        contents[ConfigManager.FARM_BACK_SLOT] = backFeather("Farm.PrveBack", "§a返回上一个菜单");
+        // 上一页（第6行第4格，仅第 2 页起）
+        contents[ConfigManager.FARM_PREV_SLOT] = page > 0
                 ? guiItem("Farm.Prvepage", Material.ARROW, "§a上一页", List.of()) : frame();
-        // 第 1 页下一页在第 5 格，第 2 页起在第 7 格
-        contents[ConfigManager.farmNextSlot(h.getPage())] = guiItem("Farm.Nextpage", Material.ARROW, "§a下一页", List.of());
+        // 下一页（第6行第6格；是否可进入由点击时判断页解锁）
+        contents[ConfigManager.FARM_NEXT_SLOT] = guiItem("Farm.Nextpage", Material.ARROW, "§a下一页", List.of());
         // 第6行第9格：骨粉储存器入口
         contents[ConfigManager.FARM_BONEMEAL_SLOT] = guiItem("Farm.Bone", Material.BONE_MEAL, "§a骨粉储存器",
                 List.of("§7点击打开骨粉储存器"));
@@ -380,8 +452,6 @@ public final class GuiManager implements Listener {
     private void renderMenu(Inventory inv) {
         ItemStack[] contents = new ItemStack[27];
         Arrays.fill(contents, frame());
-        contents[ConfigManager.MENU_CREATE_CROP_SLOT] = guiItem("menu.Farmcreate", Material.WHEAT, "§6创建农田",
-                List.of("§7创建新的农田"));
         contents[ConfigManager.MENU_FARM_SLOT] = guiItem("menu.Farm", Material.GRASS_BLOCK, "§6农田",
                 List.of("§7点击进入自己的农田"));
         contents[ConfigManager.MENU_BONEMEAL_SLOT] = guiItem("menu.Bone", Material.BONE_MEAL, "§6骨粉储存",
@@ -391,7 +461,7 @@ public final class GuiManager implements Listener {
         inv.setContents(contents);
     }
 
-    private void renderCreateCrop(Inventory inv) {
+    private void renderCreateCrop(Inventory inv, GuiHolder h) {
         ItemStack[] contents = new ItemStack[54];
         Arrays.fill(contents, frame());
         // 只按内部 28 格顺序填充（第2~5行第2~8列），不占外圈黑玻璃；
@@ -400,6 +470,8 @@ public final class GuiManager implements Listener {
         for (int i = 0; i < crops.size() && i < INNER_SLOTS.length; i++) {
             contents[INNER_SLOTS[i]] = createEntry(crops.get(i));
         }
+        // 返回上一个菜单（第6行第1格，羽毛）
+        contents[ConfigManager.FARM_BACK_SLOT] = backFeather("Farm.PrveBack", "§a返回上一个菜单");
         inv.setContents(contents);
     }
 
@@ -415,7 +487,7 @@ public final class GuiManager implements Listener {
         for (int i = start; i < Math.min(entries.size(), start + ConfigManager.WAREHOUSE_PAGE_SLOTS); i++) {
             WarehouseResource res = entries.get(i);
             CropType ct = CropRegistry.get(res.getCropId());
-            boolean seed = "SEED".equals(res.getItemType());
+            boolean seed = !res.isProduct();
             Material mat = res.getMaterial();
             String entryName = "§6" + ct.getName() + (seed ? "种子仓库" : "仓库");
             contents[INNER_SLOTS[local++]] = guiItem("Crop.CropStorage",
@@ -433,6 +505,8 @@ public final class GuiManager implements Listener {
                     ? guiItem("Crop.Nextpage", Material.ARROW, "§a下一页", List.of())
                     : guiItem("Crop.Prvepage", Material.ARROW, "§a上一页", List.of());
         }
+        // 返回主菜单（第6行第1格，羽毛）
+        contents[ConfigManager.CROP_MENU_BACK_SLOT] = backFeather("Crop.Back", "§a返回主菜单");
         inv.setContents(contents);
     }
 
@@ -457,14 +531,14 @@ public final class GuiManager implements Listener {
         }
         if (h.getPage() > 0) {
             contents[ConfigManager.BONEMEAL_PREV_SLOT] = guiItem("Bone.Prvepage", Material.ARROW, "§a上一页", List.of());
-        } else {
-            // 第 1 页同格显示「上一页」（返回进入骨粉储存器前的页面：农田或主菜单）
-            contents[ConfigManager.BONEMEAL_BACK_SLOT] = guiItem("Bone.Prvepage", Material.ARROW, "§a上一页", List.of());
         }
+        // 下一页（第6行第5格；第 2 页起是否可进入由点击时判断页解锁）
+        contents[ConfigManager.BONEMEAL_NEXT_SLOT] = guiItem("Bone.Nextpage", Material.ARROW, "§a下一页", List.of());
         if (h.getPage() == 0) {
             contents[ConfigManager.BONEMEAL_UNLOCK_SLOT] = unlockChest(db.getUnlockedPages(h.getUuid()));
         }
-        contents[ConfigManager.BONEMEAL_NEXT_SLOT] = guiItem("Bone.Nextpage", Material.ARROW, "§a下一页", List.of());
+        // 返回上一个菜单（第6行第1格，羽毛）
+        contents[ConfigManager.BONEMEAL_BACK_SLOT] = backFeather("Bone.Back", "§a返回上一个菜单");
         inv.setContents(contents);
     }
 
@@ -488,7 +562,7 @@ public final class GuiManager implements Listener {
         }
         contents[ConfigManager.WAREHOUSE_FILL_SLOT] = guiItem("CropStorage.Restock", Material.CHEST, "§a点击填充",
                 List.of("§7从后备库存补充本页空格"));
-        contents[ConfigManager.WAREHOUSE_BACK_SLOT] = guiItem("CropStorage.Back", Material.ARROW, "§a返回农作物仓库", List.of());
+        contents[ConfigManager.WAREHOUSE_BACK_SLOT] = backFeather("CropStorage.Back", "§a返回农作物仓库");
         inv.setContents(contents);
     }
 
@@ -539,7 +613,7 @@ public final class GuiManager implements Listener {
             case FARM -> handleFarmClick(player, e, h);
             case GROWTH -> { /* 纯展示，无交互 */ }
             case FARM_MANAGE -> handleFarmManageClick(player, e, h);
-            case CREATE_CROP -> handleCreateCropClick(player, e);
+            case CREATE_CROP -> handleCreateCropClick(player, e, h);
             case CROP_MENU -> handleCropMenuClick(player, e, h);
             case BONEMEAL -> handleBonemealClick(player, e, h);
             case WAREHOUSE -> handleWarehouseClick(player, e, h);
@@ -606,20 +680,58 @@ public final class GuiManager implements Listener {
         pendingDelete.remove(e.getPlayer().getUniqueId());
     }
 
+    /**
+     * ESC / 背包键关闭自定义 GUI 时返回「上一个菜单」（需求4）。
+     *
+     * <p>仅当玩家主动关闭（Reason.PLAYER）且该界面设置了 back 时才返回；
+     * 插件主动打开新界面触发的是 OPEN_NEW，不在此列，因此不会连环误触发。
+     */
+    @EventHandler
+    public void onClose(InventoryCloseEvent e) {
+        if (!(e.getInventory().getHolder() instanceof GuiHolder h)) {
+            return;
+        }
+        Runnable back = h.getBack();
+        if (back == null) {
+            return; // 根级（主菜单）无需返回
+        }
+        if (e.getReason() == InventoryCloseEvent.Reason.OPEN_NEW
+                || e.getReason() == InventoryCloseEvent.Reason.DEATH
+                || e.getReason() == InventoryCloseEvent.Reason.DISCONNECT
+                || e.getReason() == InventoryCloseEvent.Reason.TELEPORT) {
+            return;
+        }
+        if (e.getPlayer() instanceof Player player) {
+            Runnable task = back;
+            Bukkit.getScheduler().runTask(plugin, () -> task.run());
+        }
+    }
+
     private void handleFarmClick(Player player, InventoryClickEvent e, GuiHolder h) {
         int raw = e.getSlot();
         UUID uuid = h.getUuid();
-        if (raw == ConfigManager.farmNextSlot(h.getPage())) {
-            if (db.isFarmPageFull(uuid, h.getPage())) {
-                scheduleOpen(() -> openFarm(player, h.getPage() + 1));
-            } else {
-                player.sendMessage(ConfigManager.MSG_PAGE_LOCKED
-                        .replace("%page-slots%", String.valueOf(ConfigManager.FARM_PAGE_SLOTS)));
+        int page = h.getPage();
+        // 返回上一个菜单（羽毛）
+        if (raw == ConfigManager.FARM_BACK_SLOT) {
+            Runnable back = h.getBack();
+            if (back != null) {
+                scheduleOpen(back::run);
             }
             return;
         }
-        if (raw == ConfigManager.FARM_PREV_SLOT && h.getPage() > 0) {
-            scheduleOpen(() -> openFarm(player, h.getPage() - 1));
+        // 下一页：判断下一页是否已解锁
+        if (raw == ConfigManager.FARM_NEXT_SLOT) {
+            int unlockedPages = db.getFarmUnlockedPages(uuid);
+            if (page + 1 < unlockedPages) {
+                scheduleOpen(() -> openFarm(player, page + 1));
+            } else {
+                player.sendMessage(ConfigManager.MSG_FARM_PAGE_LOCKED.replace("%page%", String.valueOf(page + 2)));
+            }
+            return;
+        }
+        // 上一页（第 2 页起）
+        if (raw == ConfigManager.FARM_PREV_SLOT && page > 0) {
+            scheduleOpen(() -> openFarm(player, page - 1));
             return;
         }
         if (raw == ConfigManager.FARM_BONEMEAL_SLOT) {
@@ -630,14 +742,27 @@ public final class GuiManager implements Listener {
         if (local < 0) {
             return;
         }
-        int globalIndex = h.getPage() * ConfigManager.FARM_PAGE_SLOTS + local;
+        int globalIndex = page * ConfigManager.FARM_PAGE_SLOTS + local;
         if (db.hasFarmSlot(uuid, globalIndex)) {
-            // 左键进入作物生长界面，右键进入农田管理
+            // 已种植：左键进入生长，右键进入管理
             if (e.isRightClick()) {
                 scheduleOpen(() -> openFarmManage(player, globalIndex));
             } else {
                 scheduleOpen(() -> openGrowth(player, globalIndex));
             }
+            return;
+        }
+        int unlocked = db.getUnlockedCount(uuid, page);
+        if (local < unlocked) {
+            // 绿色已解锁空格：进入创建农田视图（在该格创建）
+            scheduleOpen(() -> openCreateCrop(player, globalIndex));
+        } else if (unlocked < ConfigManager.FARM_PAGE_SLOTS
+                && local < unlocked + ConfigManager.FARM_UNLOCK_BATCH) {
+            // 黄色：付费解锁本批种植格
+            handleFarmUnlock(player, uuid, page);
+        } else {
+            // 红色：前置未解锁
+            player.sendMessage(ConfigManager.MSG_FARM_UNLOCK_RED);
         }
     }
 
@@ -699,9 +824,7 @@ public final class GuiManager implements Listener {
     /** 主菜单点击分发（槽位可配置，用 if 判断）。 */
     private void handleMenuClick(Player player, InventoryClickEvent e) {
         int raw = e.getSlot();
-        if (raw == ConfigManager.MENU_CREATE_CROP_SLOT) {
-            scheduleOpen(() -> openCreateCrop(player));
-        } else if (raw == ConfigManager.MENU_FARM_SLOT) {
+        if (raw == ConfigManager.MENU_FARM_SLOT) {
             scheduleOpen(() -> openFarm(player, 0));
         } else if (raw == ConfigManager.MENU_BONEMEAL_SLOT) {
             scheduleOpen(() -> openBonemeal(player, 0, false));
@@ -768,7 +891,15 @@ public final class GuiManager implements Listener {
     }
 
     /** 创建农田 GUI：点击作物条目创建对应农田。 */
-    private void handleCreateCropClick(Player player, InventoryClickEvent e) {
+    private void handleCreateCropClick(Player player, InventoryClickEvent e, GuiHolder h) {
+        // 返回上一个菜单（羽毛）
+        if (e.getSlot() == ConfigManager.FARM_BACK_SLOT) {
+            Runnable back = h.getBack();
+            if (back != null) {
+                scheduleOpen(back::run);
+            }
+            return;
+        }
         int local = rawToLocal(e.getSlot());
         if (local < 0 || cropManager == null) {
             return;
@@ -777,11 +908,20 @@ public final class GuiManager implements Listener {
         if (local >= crops.size()) {
             return;
         }
-        createCrop(player, crops.get(local));
+        // 在农田页选中的目标格（createSlot）上创建
+        createCrop(player, crops.get(local), h.getCreateSlot());
     }
 
     private void handleCropMenuClick(Player player, InventoryClickEvent e, GuiHolder h) {
         int raw = e.getSlot();
+        // 返回主菜单（羽毛）
+        if (raw == ConfigManager.CROP_MENU_BACK_SLOT) {
+            Runnable back = h.getBack();
+            if (back != null) {
+                scheduleOpen(back::run);
+            }
+            return;
+        }
         // 导航同格：有下一页则下一页，否则上一页
         if (raw == ConfigManager.CROP_MENU_NEXT_SLOT) {
             int entries = cropMenuEntries().size();
@@ -805,16 +945,18 @@ public final class GuiManager implements Listener {
 
     /**
      * 农作物仓库条目列表（渲染与点击共用，顺序必须一致）：
-     * 有独立种子的作物 = [种子仓库, 产物仓库] 2 条；
+     * 有独立种子的作物 = [每个种子素材独立一条, 产物仓库 1 条]；
      * 无种子作物（本体当种子，如土豆/胡萝卜/竹子/苹果）= 产物仓库 1 条。
      */
     private List<WarehouseResource> cropMenuEntries() {
         List<WarehouseResource> list = new ArrayList<>();
         for (CropType ct : CropRegistry.all().values()) {
             if (ct.hasSeed()) {
-                list.add(WarehouseResource.of(ct.getId(), "SEED"));
+                for (Material m : ct.getSeedMaterials()) {
+                    list.add(WarehouseResource.seedOf(ct.getId(), m));
+                }
             }
-            list.add(WarehouseResource.of(ct.getId(), "PRODUCT"));
+            list.add(WarehouseResource.productOf(ct.getId()));
         }
         return list;
     }
@@ -822,6 +964,14 @@ public final class GuiManager implements Listener {
     private void handleBonemealClick(Player player, InventoryClickEvent e, GuiHolder h) {
         UUID uuid = h.getUuid();
         int raw = e.getSlot();
+        // 返回上一个菜单（羽毛）
+        if (raw == ConfigManager.BONEMEAL_BACK_SLOT) {
+            Runnable back = h.getBack();
+            if (back != null) {
+                scheduleOpen(back::run);
+            }
+            return;
+        }
         if (raw == ConfigManager.BONEMEAL_NEXT_SLOT) {
             int unlocked = db.getUnlockedPages(uuid);
             if (h.getPage() + 1 < unlocked) {
@@ -831,17 +981,8 @@ public final class GuiManager implements Listener {
             }
             return;
         }
-        if (raw == ConfigManager.BONEMEAL_PREV_SLOT) {
-            if (h.getPage() > 0) {
-                scheduleOpen(() -> openBonemeal(player, h.getPage() - 1, h.isFromFarm()));
-            } else {
-                // 第 1 页同格点击：返回进入骨粉储存器前的页面（农田或主菜单）
-                if (h.isFromFarm()) {
-                    scheduleOpen(() -> openFarm(player, 0));
-                } else {
-                    scheduleOpen(() -> openMenu(player));
-                }
-            }
+        if (raw == ConfigManager.BONEMEAL_PREV_SLOT && h.getPage() > 0) {
+            scheduleOpen(() -> openBonemeal(player, h.getPage() - 1, h.isFromFarm()));
             return;
         }
         if (raw == ConfigManager.BONEMEAL_UNLOCK_SLOT && h.getPage() == 0) {
@@ -861,7 +1002,10 @@ public final class GuiManager implements Listener {
 
     private void handleWarehouseClick(Player player, InventoryClickEvent e, GuiHolder h) {
         if (e.getSlot() == ConfigManager.WAREHOUSE_BACK_SLOT) {
-            scheduleOpen(() -> openCropMenu(player, 0));
+            Runnable back = h.getBack();
+            if (back != null) {
+                scheduleOpen(back::run);
+            }
             return;
         }
         if (e.getSlot() == ConfigManager.WAREHOUSE_FILL_SLOT) {
@@ -881,8 +1025,8 @@ public final class GuiManager implements Listener {
 
     // ================= 创建 / 骨粉 / 仓库操作 =================
 
-    /** 创建农田：扣种子（背包优先→仓库）并种植对应格数，成功后跳转到对应农田页。 */
-    private void createCrop(Player player, CropType ct) {
+    /** 创建农田：消耗全部种子素材（背包优先→各素材仓库）并在指定格/首个空闲已解锁格创建，成功后跳转农田页。 */
+    private void createCrop(Player player, CropType ct, int createSlot) {
         UUID uuid = player.getUniqueId();
         int maxFarms = ConfigManager.allowedFarms(player);
         int farmCount = db.getFarmCount(uuid);
@@ -895,7 +1039,29 @@ public final class GuiManager implements Listener {
             player.sendMessage(ConfigManager.MSG_FARM_LIMIT.replace("%max%", String.valueOf(maxFarms)));
             return;
         }
-        int globalIndex = cropManager.createFarm(player, ct);
+        int target = createSlot;
+        if (target < 0) {
+            // 未指定目标格（/xlr crop create <type>）：自动取首个空闲已解锁格
+            target = firstFreeUnlockedSlot(uuid);
+            if (target < 0) {
+                // 无明显可种格：交回农药野逻辑提示（已解锁空格均无）
+                player.sendMessage(ConfigManager.MSG_FARM_FULL);
+                return;
+            }
+        } else {
+            // 指定格校验：须已解锁且空闲
+            int page = target / ConfigManager.FARM_PAGE_SLOTS;
+            int local = target % ConfigManager.FARM_PAGE_SLOTS;
+            if (db.hasFarmSlot(uuid, target)) {
+                player.sendMessage(ConfigManager.MSG_DB_ERROR);
+                return;
+            }
+            if (local >= db.getUnlockedCount(uuid, page)) {
+                player.sendMessage(ConfigManager.MSG_FARM_UNLOCK_RED);
+                return;
+            }
+        }
+        int globalIndex = cropManager.createFarm(player, ct, target);
         if (globalIndex < 0) {
             player.sendMessage(ConfigManager.MSG_NO_SEED.replace("%seedname%", ct.getName() + "种子"));
             return;
@@ -909,6 +1075,84 @@ public final class GuiManager implements Listener {
                 .replace("%slot%", String.valueOf(slot))
                 .replace("%replant%", String.valueOf(planted)));
         scheduleOpen(() -> openFarm(player, globalIndex / ConfigManager.FARM_PAGE_SLOTS));
+    }
+
+    /**
+     * 命令入口创建农田（/xlr crop create &lt;type&gt;）：在首个空闲已解锁格创建。
+     * 上限/扣种子/消息统一走 {@link #createCrop(Player, CropType, int)}。
+     */
+    public void createCropCommand(Player player, CropType ct) {
+        createCrop(player, ct, -1);
+    }
+
+    /**
+     * 查找首个「已解锁且空闲」的农田全局槽位（跨已解锁页，local < 已解锁数）。
+     *
+     * @return 全局槽位；无可用返回 -1
+     */
+    private int firstFreeUnlockedSlot(UUID uuid) {
+        int unlockedPages = db.getFarmUnlockedPages(uuid);
+        for (int page = 0; page < unlockedPages; page++) {
+            int count = db.getUnlockedCount(uuid, page);
+            for (int local = 0; local < count; local++) {
+                int gi = page * ConfigManager.FARM_PAGE_SLOTS + local;
+                if (!db.hasFarmSlot(uuid, gi)) {
+                    return gi;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 农田页黄格付费解锁下一批种植格（每批 FARM_UNLOCK_BATCH 个，价 FARM_UNLOCK_PRICE）。
+     * 走经济操作状态机（PENDING→扣款→落库→PAID），崩溃窗口由启动恢复兜底。
+     */
+    private void handleFarmUnlock(Player player, UUID uuid, int page) {
+        if (economy == null || !economy.isEnabled()) {
+            player.sendMessage(ConfigManager.MSG_NO_ECONOMY);
+            return;
+        }
+        int unlocked = db.getUnlockedCount(uuid, page);
+        if (unlocked >= ConfigManager.FARM_PAGE_SLOTS) {
+            return;
+        }
+        int target = Math.min(ConfigManager.FARM_PAGE_SLOTS, unlocked + ConfigManager.FARM_UNLOCK_BATCH);
+        double cost = ConfigManager.FARM_UNLOCK_PRICE;
+        String costText = String.valueOf((long) cost);
+        if (!economy.has(player, cost)) {
+            player.sendMessage(ConfigManager.MSG_FARM_UNLOCK_NO_MONEY.replace("%cost%", costText));
+            return;
+        }
+        double balanceBefore = economy.getBalance(player);
+        String opId = db.beginEconomicOp(uuid, "FARM_UNLOCK",
+                "page=" + page + " count=" + target + " cost=" + costText,
+                cost, balanceBefore, target, page);
+        if (opId == null) {
+            player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            return;
+        }
+        if (!economy.withdraw(player, cost)) {
+            db.finishEconomicOp(opId, "ROLLED_BACK");
+            player.sendMessage(ConfigManager.MSG_FARM_UNLOCK_NO_MONEY.replace("%cost%", costText));
+            return;
+        }
+        if (db.setUnlockedCountAtLeast(uuid, page, target)) {
+            db.finishEconomicOp(opId, "PAID");
+            int gained = target - unlocked;
+            player.sendMessage(ConfigManager.MSG_FARM_UNLOCK_DONE
+                    .replace("%cost%", costText)
+                    .replace("%count%", String.valueOf(gained)));
+        } else {
+            if (economy.deposit(player, cost)) {
+                db.finishEconomicOp(opId, "ROLLED_BACK");
+                player.sendMessage(ConfigManager.MSG_DB_ERROR);
+            } else {
+                player.sendMessage(ConfigManager.MSG_DB_ERROR);
+                plugin.getLogger().warning("农田解锁扣款成功但退款与落库均失败，保持 PENDING: uuid=" + uuid + " opId=" + opId);
+            }
+        }
+        scheduleOpen(() -> openFarm(player, page));
     }
 
     /** 骨粉 GUI：点击背包骨粉物品放入库存。 */
@@ -1181,6 +1425,34 @@ public final class GuiManager implements Listener {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    /** 农田页已解锁格（绿色玻璃，可种植）。 */
+    private ItemStack freeTile(boolean isFree) {
+        return guiItem("Farm.Free", isFree ? Material.GREEN_STAINED_GLASS : Material.GREEN_STAINED_GLASS,
+                "§a免费种植格 - 种植作物",
+                List.of("§7点击选择要创建的作物"));
+    }
+
+    /** 农田页待解锁批（黄色玻璃，付费购买一批）。 */
+    private ItemStack yellowTile() {
+        String cost = String.valueOf(ConfigManager.FARM_UNLOCK_PRICE);
+        String count = String.valueOf(ConfigManager.FARM_UNLOCK_BATCH);
+        return guiItem("Farm.Yellow", Material.YELLOW_STAINED_GLASS,
+                "§e花费 $" + cost + " 购买 " + count + " 个种植格",
+                List.of("§7点击付费解锁下一批种植格"));
+    }
+
+    /** 农田页前置未解锁（红色玻璃，不可种植）。 */
+    private ItemStack redTile() {
+        return guiItem("Farm.Red", Material.RED_STAINED_GLASS,
+                "§c请先解锁前置种植格，才可继续扩建",
+                List.of());
+    }
+
+    /** 各 GUI 第6行第1格的「返回上一个菜单」羽毛按钮。 */
+    private ItemStack backFeather(String key, String fallbackName) {
+        return guiItem(key, Material.FEATHER, fallbackName, List.of("§7返回上一个菜单"));
     }
 
     private ItemStack farmIcon(CropType ct, int level) {

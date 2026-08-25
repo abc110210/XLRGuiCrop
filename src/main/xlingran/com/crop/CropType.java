@@ -2,20 +2,21 @@ package xlingran.com.crop;
 
 import org.bukkit.Material;
 
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 作物类型定义（作物注册表条目）。
  *
- * <p>每个作物包含：标识、图标、名称、农田名、种子/产物材料、生长时长区间（秒）、
- * 收割产量、是否消耗种子、是否按生长阶段变化显示。
+ * <p>每个作物包含：标识、种子素材列表（可多种，均作为播种素材且各自独立仓库）、产物材料、名称、农田名、
+ * 生长时长区间（秒）、收割产量、是否消耗种子、是否按生长阶段变化显示。
  * 定义由 config.yml 的 crops 段驱动，见 {@code ConfigLoader}。
  */
 public final class CropType {
 
     private final String id;
-    private final Material icon;
-    private final Material seedMaterial;
+    /** 种子素材列表（可多种，如苹果可用多种树苗）；第 1 个为主素材，用作播种/种下图标。 */
+    private final List<Material> seedMaterials;
     private final Material productMaterial;
     /** 收割入仓库/取出的产物材质（如西瓜：成熟展示 MELON、入仓为 MELON_SLICE）；缺省=productMaterial。 */
     private final Material harvestMaterial;
@@ -30,14 +31,15 @@ public final class CropType {
     /** 生长界面从该阶段起展示 product-material 图标（此前展示 seed-material）。 */
     private final int showProductStage;
 
-    public CropType(String id, Material icon, Material seedMaterial, Material productMaterial, Material harvestMaterial,
+    public CropType(String id, List<Material> seedMaterials, Material productMaterial, Material harvestMaterial,
                     String name, String farmName,
                     int growMinSec, int growMaxSec,
                     int yieldProduct, int yieldSeed, boolean consumeSeed,
                     boolean showStageChange, int showProductStage) {
         this.id = id;
-        this.icon = icon;
-        this.seedMaterial = seedMaterial;
+        this.seedMaterials = seedMaterials.isEmpty()
+                ? List.of(harvestMaterial != null ? harvestMaterial : Material.WHEAT_SEEDS)
+                : seedMaterials;
         this.productMaterial = productMaterial;
         this.harvestMaterial = harvestMaterial != null ? harvestMaterial : productMaterial;
         this.name = name;
@@ -53,13 +55,22 @@ public final class CropType {
 
     public String getId() { return id; }
 
-    /** GUI 展示图标（农田/生长/创建条目）。 */
-    public Material getIcon() { return icon; }
+    /**
+     * 全部种子素材（播种可用的材质）。玩家播种时按此顺序自动消耗（背包优先、各素材仓库其次）。
+     */
+    public List<Material> getSeedMaterials() { return seedMaterials; }
 
-    /** 种植/补种/重播消耗的种子材料（背包侧）。 */
-    public Material getSeedMaterial() { return seedMaterial; }
+    /**
+     * 主种子素材（第 1 个）。图标 / 生长前期展示 / 收割回种默认用主素材。
+     */
+    public Material getSeedMaterial() { return seedMaterials.get(0); }
 
-    /** 成熟/产物展示材质（生长界面、农田图标用）。 */
+    /**
+     * GUI 图标（种子素材，即刚种下/未成熟的图标）。原 icon 配置已废弃。
+     */
+    public Material getIcon() { return seedMaterials.get(0); }
+
+    /** 成熟/产物展示材质（生长界面、成熟图标用）。 */
     public Material getProductMaterial() { return productMaterial; }
 
     /** 收割入仓/取出材质（虚拟仓库展示/取出；如西瓜=西瓜片 MELON_SLICE）。 */
@@ -82,11 +93,11 @@ public final class CropType {
     public int getYieldSeed() { return yieldSeed; }
 
     /**
-     * 是否有独立种子物品（种子材质 ≠ 产物材质）。
-     * 无独立种子的作物（土豆/胡萝卜/竹子/苹果等）用本体当种子，仓库只显示产物入口。
+     * 是否有独立种子素材（主种子素材材质 ≠ 产物材质）。
+     * 主素材与产物相同（如土豆/胡萝卜用本体当种子）时，仓库不单独出种子入口。
      */
     public boolean hasSeed() {
-        return seedMaterial != productMaterial;
+        return getSeedMaterial() != productMaterial;
     }
 
     public boolean isConsumeSeed() { return consumeSeed; }
@@ -103,5 +114,10 @@ public final class CropType {
             return growMaxSec;
         }
         return growMinSec + ThreadLocalRandom.current().nextInt(growMaxSec - growMinSec + 1);
+    }
+
+    @Override
+    public String toString() {
+        return "CropType{id=" + id + ", seeds=" + seedMaterials + ", product=" + productMaterial + "}";
     }
 }

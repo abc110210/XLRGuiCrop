@@ -40,16 +40,31 @@ public final class EconomyManager {
         return e != null && e.has(player, amount);
     }
 
-    /** 尝试扣款，返回是否成功。 */
+    /** 尝试扣款，返回是否成功。失败时重置缓存，下次调用重新探测 Vault 服务（容忍经济插件重载）。 */
     public boolean withdraw(Player player, double amount) {
         Economy e = current();
-        return e != null && e.withdrawPlayer(player, amount).transactionSuccess();
+        if (e == null) {
+            return false;
+        }
+        boolean ok = e.withdrawPlayer(player, amount).transactionSuccess();
+        // 扣款失败：极可能是缓存的原 provider 已失效（经济插件重载/停启），重置以便下次重新获取
+        if (!ok) {
+            economy = null;
+        }
+        return ok;
     }
 
-    /** 尝试退款，返回是否成功（扣款成功但落库失败时回滚用）。 */
+    /** 尝试退款，返回是否成功（扣款成功但落库失败时回滚用）。失败时同样重置缓存。 */
     public boolean deposit(Player player, double amount) {
         Economy e = current();
-        return e != null && e.depositPlayer(player, amount).transactionSuccess();
+        if (e == null) {
+            return false;
+        }
+        boolean ok = e.depositPlayer(player, amount).transactionSuccess();
+        if (!ok) {
+            economy = null;
+        }
+        return ok;
     }
 
     /** 查询在线玩家余额。 */

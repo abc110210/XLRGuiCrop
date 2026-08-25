@@ -40,22 +40,16 @@ public final class ConfigManager {
     public static final Map<String, GuiItemConfig> GUI_ITEMS = new LinkedHashMap<>();
 
     // ================= 主菜单 GUI（gui.yml menu.*.slot 可覆盖） =================
-    /** 创建农田入口槽位（第2行第2格） */ public static int MENU_CREATE_CROP_SLOT = 10;
-    /** 农田入口槽位（第2行第4格） */ public static int MENU_FARM_SLOT = 12;
-    /** 骨粉储存入口槽位（第2行第6格） */ public static int MENU_BONEMEAL_SLOT = 14;
+    /** 农田入口槽位（第2行第2格） */ public static int MENU_FARM_SLOT = 10;
+    /** 骨粉储存入口槽位（第2行第5格） */ public static int MENU_BONEMEAL_SLOT = 13;
     /** 农作物仓库入口槽位（第2行第8格） */ public static int MENU_CROP_MENU_SLOT = 16;
 
     // ================= 农田 GUI（gui.yml Farm.*.slot 可覆盖） =================
     /** 每页农田格数（布局固定 28，与内部 28 格一致，勿改） */ public static final int FARM_PAGE_SLOTS = 28;
-    /** 上一页按钮槽位（第6行第3格） */ public static int FARM_PREV_SLOT = 47;
-    /** 第 1 页下一页槽位（第6行第5格） */ public static int FARM_NEXT_SLOT_PAGE1 = 49;
-    /** 第 2 页起下一页槽位（第6行第7格） */ public static int FARM_NEXT_SLOT_PAGE2 = 51;
+    /** 返回上一个菜单按钮槽位（第6行第1格，羽毛） */ public static int FARM_BACK_SLOT = 45;
+    /** 上一页按钮槽位（第6行第4格，仅第 2 页起） */ public static int FARM_PREV_SLOT = 48;
+    /** 下一页按钮槽位（第6行第6格） */ public static int FARM_NEXT_SLOT = 50;
     /** 骨粉储存器入口槽位（第6行第9格） */ public static int FARM_BONEMEAL_SLOT = 53;
-
-    /** 农田 GUI 下一页按钮槽位：第 1 页在第 5 格，第 2 页起在第 7 格。 */
-    public static int farmNextSlot(int page) {
-        return page <= 0 ? FARM_NEXT_SLOT_PAGE1 : FARM_NEXT_SLOT_PAGE2;
-    }
 
     // ================= 农田管理 GUI（gui.yml Farmmanage.*.slot 可覆盖） =================
     /** 补种按钮槽位（第2行第2格） */ public static int FARM_MANAGE_REPLANT_SLOT = 10;
@@ -76,6 +70,9 @@ public final class ConfigManager {
     /** 每种作物最高等级缓存（gui.yml FarmUpdate LVn 段数）；缺省回退全局 FARM_MAX_LEVEL */
     private static final Map<String, Integer> FARM_MAX_LEVELS = new HashMap<>();
     /** 玩家默认可拥有农田数（动态权限 xlr.crop.create.farm.<N> 可覆盖） */ public static int FARM_MAX_FARMS = 1;
+    /** 每页免费种植格数（第 1 格默认解锁） */ public static int FARM_UNLOCK_FREE = 1;
+    /** 每页待解锁批次大小（黄色格数量，一次付费解锁一批） */ public static int FARM_UNLOCK_BATCH = 3;
+    /** 解锁一批种植格所需金币 */ public static int FARM_UNLOCK_PRICE = 1000;
     /** 查询某作物某等级产量 [产物, 种子]；未在 FarmUpdate 配置返回 null。 */
     public static int[] getFarmDrop(String cropId, int level) {
         return FARM_DROPS.get(cropId + ":" + level);
@@ -118,23 +115,24 @@ public final class ConfigManager {
     /** 作物展示起始槽位（第2行第2格） */ public static int CREATE_CROP_START_SLOT = 10;
 
     // ================= 农作物仓库 GUI（gui.yml Crop.*.slot 可覆盖） =================
-    /** 小麦种子仓库入口槽位 */ public static int CROP_MENU_SEED_SLOT = 10;
-    /** 小麦仓库入口槽位 */ public static int CROP_MENU_WHEAT_SLOT = 11;
+    /** 种子仓库入口槽位 */ public static int CROP_MENU_SEED_SLOT = 10;
+    /** 仓库入口槽位 */ public static int CROP_MENU_WHEAT_SLOT = 11;
     /** 导航槽位（第6行第5格，同格分页） */ public static int CROP_MENU_NEXT_SLOT = 49;
     /** 导航槽位（与 NEXT 同格，语义上的上一页） */ public static int CROP_MENU_PREV_SLOT = 49;
+    /** 返回主菜单槽位（第6行第1格，羽毛） */ public static int CROP_MENU_BACK_SLOT = 45;
 
     // ================= 作物仓库 GUI（gui.yml CropStorage.*.slot 可覆盖） =================
     /** 填充按钮槽位（第6行第5格） */ public static int WAREHOUSE_FILL_SLOT = 49;
-    /** 返回农作物仓库槽位（第6行第3格） */ public static int WAREHOUSE_BACK_SLOT = 47;
+    /** 返回农作物仓库槽位（第6行第1格，羽毛） */ public static int WAREHOUSE_BACK_SLOT = 45;
     /** 仓库每页展示格数（布局固定 28，勿改） */ public static final int WAREHOUSE_PAGE_SLOTS = 28;
     /** 单格容量 */ public static final int WAREHOUSE_STACK = 64;
     /** 每作物单类库存（种子/产物分别计算）上限，超出部分不再入账 */ public static long WAREHOUSE_MAX_STOCK = 100000;
 
     // ================= 骨粉储存器 GUI（gui.yml Bone.*.slot 可覆盖） =================
-    /** 升级按钮槽位（第1页第6行第5格） */ public static int BONEMEAL_UNLOCK_SLOT = 49;
-    /** 下一页槽位（第6行第7格） */ public static int BONEMEAL_NEXT_SLOT = 51;
-    /** 上一页槽位（第6行第3格） */ public static int BONEMEAL_PREV_SLOT = 47;
-    /** 返回槽位（第1页与上一页同格） */ public static int BONEMEAL_BACK_SLOT = 47;
+    /** 升级按钮槽位（第1页第6行第6格） */ public static int BONEMEAL_UNLOCK_SLOT = 50;
+    /** 下一页槽位（第6行第5格） */ public static int BONEMEAL_NEXT_SLOT = 49;
+    /** 上一页槽位（第6行第4格，仅第 2 页起） */ public static int BONEMEAL_PREV_SLOT = 48;
+    /** 返回上一个菜单槽位（第6行第1格，羽毛） */ public static int BONEMEAL_BACK_SLOT = 45;
     /** 每页展示格数（布局固定 28，勿改） */ public static final int BONEMEAL_PAGE_SLOTS = 28;
     /** 解锁下一页基础金币（第 N 页 = base × (N-1)） */ public static int BONEMEAL_UNLOCK_BASE = 1000;
     /** 骨粉加速系数（成熟时长 ×0.8） */ public static double BONEMEAL_FAST_FACTOR = 0.8;
@@ -163,7 +161,11 @@ public final class ConfigManager {
     public static String MSG_CROP_CREATED = "§a成功创建 §f%farmname% §a（第 %page% 页 · 第 %slot% 格）！已种植 %replant% 格。";
     public static String MSG_FARM_FULL = "§c所有农田页已满，无法继续创建农田！";
     public static String MSG_FARM_LIMIT = "§c你最多只能拥有 %max% 块农田！";
-    public static String MSG_PAGE_LOCKED = "§c当前页 28 格农田已满后才能进入下一页！";
+    public static String MSG_PAGE_LOCKED = "§c当前页 28 格全部解锁种植后才会自动解锁下一页。";
+    public static String MSG_FARM_PAGE_LOCKED = "§c你尚未解锁第 %page% 页农田。";
+    public static String MSG_FARM_UNLOCK_DONE = "§a已花费 %cost% 金币解锁 %count% 个种植格！";
+    public static String MSG_FARM_UNLOCK_NO_MONEY = "§c金币不足，解锁下一批种植格需要 %cost% 金币！";
+    public static String MSG_FARM_UNLOCK_RED = "§c请先解锁前置种植格，才可继续扩建。";
     public static String MSG_NO_SEED = "§c%seedname%不足（种子仓库 + 背包均不够）！";
     public static String MSG_REPLANT_DONE = "§a已补种 %count% 格，消耗 %seed% 粒%seedname%。";
     public static String MSG_REPLANT_EMPTY = "§e该农田没有需要补种的格子。";
@@ -218,6 +220,8 @@ public final class ConfigManager {
         TICK_INTERVAL_SEC = Math.max(1, cfg.getInt("tick.interval-sec", TICK_INTERVAL_SEC));
         DELETE_CONFIRM_TIMEOUT_SEC = Math.max(1, cfg.getInt("farm.delete-confirm-timeout-sec", DELETE_CONFIRM_TIMEOUT_SEC));
         FARM_MAX_FARMS = Math.max(1, cfg.getInt("farm.default-max-farms", FARM_MAX_FARMS));
+        FARM_UNLOCK_BATCH = Math.max(1, cfg.getInt("farm.unlock-batch", FARM_UNLOCK_BATCH));
+        FARM_UNLOCK_PRICE = Math.max(0, cfg.getInt("farm.unlock-price", FARM_UNLOCK_PRICE));
         WAREHOUSE_MAX_STOCK = Math.max(0, cfg.getLong("warehouse.max-stock", WAREHOUSE_MAX_STOCK));
         REPLANT_COST_SEED = Math.max(1, cfg.getInt("farm.replant-cost-seed", REPLANT_COST_SEED));
         BONEMEAL_FAST_FACTOR = Math.max(0.1, cfg.getDouble("bonemeal.fast-factor", BONEMEAL_FAST_FACTOR));
@@ -241,11 +245,12 @@ public final class ConfigManager {
         BONE_OFF = color(gui, "BoneVariable.BoneOFF", BONE_OFF);
 
         // ---- GUI 槽位（gui.yml，空则保留默认；范围校验：3 行 GUI 限 0-26，其余 0-53） ----
-        MENU_CREATE_CROP_SLOT = slot(gui, "menu.Farmcreate.slot", MENU_CREATE_CROP_SLOT, 27);
         MENU_FARM_SLOT = slot(gui, "menu.Farm.slot", MENU_FARM_SLOT, 27);
         MENU_BONEMEAL_SLOT = slot(gui, "menu.Bone.slot", MENU_BONEMEAL_SLOT, 27);
         MENU_CROP_MENU_SLOT = slot(gui, "menu.Crop.slot", MENU_CROP_MENU_SLOT, 27);
+        FARM_BACK_SLOT = slot(gui, "Farm.PrveBack.slot", FARM_BACK_SLOT, 54);
         FARM_PREV_SLOT = slot(gui, "Farm.Prvepage.slot", FARM_PREV_SLOT, 54);
+        FARM_NEXT_SLOT = slot(gui, "Farm.Nextpage.slot", FARM_NEXT_SLOT, 54);
         FARM_BONEMEAL_SLOT = slot(gui, "Farm.Bone.slot", FARM_BONEMEAL_SLOT, 54);
         FARM_MANAGE_REPLANT_SLOT = slot(gui, "Farmmanage.Seed.slot", FARM_MANAGE_REPLANT_SLOT, 27);
         FARM_MANAGE_UPGRADE_SLOT = slot(gui, "Farmmanage.Update.slot", FARM_MANAGE_UPGRADE_SLOT, 27);
@@ -257,23 +262,24 @@ public final class ConfigManager {
         CROP_MENU_WHEAT_SLOT = slot(gui, "Crop.Wheat.slot", CROP_MENU_WHEAT_SLOT, 54);
         CROP_MENU_NEXT_SLOT = slot(gui, "Crop.Nextpage.slot", CROP_MENU_NEXT_SLOT, 54);
         CROP_MENU_PREV_SLOT = CROP_MENU_NEXT_SLOT;
+        CROP_MENU_BACK_SLOT = slot(gui, "Crop.Back.slot", CROP_MENU_BACK_SLOT, 54);
         WAREHOUSE_FILL_SLOT = slot(gui, "CropStorage.Restock.slot", WAREHOUSE_FILL_SLOT, 54);
         WAREHOUSE_BACK_SLOT = slot(gui, "CropStorage.Back.slot", WAREHOUSE_BACK_SLOT, 54);
         BONEMEAL_UNLOCK_SLOT = slot(gui, "Bone.Update.slot", BONEMEAL_UNLOCK_SLOT, 54);
         BONEMEAL_NEXT_SLOT = slot(gui, "Bone.Nextpage.slot", BONEMEAL_NEXT_SLOT, 54);
         BONEMEAL_PREV_SLOT = slot(gui, "Bone.Prvepage.slot", BONEMEAL_PREV_SLOT, 54);
-        BONEMEAL_BACK_SLOT = BONEMEAL_PREV_SLOT;
+        BONEMEAL_BACK_SLOT = slot(gui, "Bone.Back.slot", BONEMEAL_BACK_SLOT, 54);
         // 创建页点击依赖内部 28 格映射，起始槽必须是内部格，否则点击错位
         if (!isInnerSlot(CREATE_CROP_START_SLOT)) {
             CREATE_CROP_START_SLOT = 10;
             System.err.println("[XLRGuiCrop] Farmcreate.Wheat.slot 不是内部格，已回退默认 10");
         }
         // 按钮槽位冲突检测（同 GUI 内两按钮不得占同一格）
-        checkSlotClash("主菜单", MENU_CREATE_CROP_SLOT, MENU_FARM_SLOT, MENU_BONEMEAL_SLOT, MENU_CROP_MENU_SLOT);
+        checkSlotClash("主菜单", MENU_FARM_SLOT, MENU_BONEMEAL_SLOT, MENU_CROP_MENU_SLOT);
         checkSlotClash("农田管理", FARM_MANAGE_REPLANT_SLOT, FARM_MANAGE_UPGRADE_SLOT, FARM_MANAGE_FAST_SLOT,
                 FARM_MANAGE_DELETE_SLOT, FARM_MANAGE_BACK_SLOT);
-        checkSlotClash("骨粉储存器", BONEMEAL_UNLOCK_SLOT, BONEMEAL_NEXT_SLOT, BONEMEAL_PREV_SLOT);
-        checkSlotClash("农作物仓库", CROP_MENU_SEED_SLOT, CROP_MENU_WHEAT_SLOT, CROP_MENU_NEXT_SLOT);
+        checkSlotClash("骨粉储存器", BONEMEAL_UNLOCK_SLOT, BONEMEAL_NEXT_SLOT, BONEMEAL_PREV_SLOT, BONEMEAL_BACK_SLOT);
+        checkSlotClash("农作物仓库", CROP_MENU_NEXT_SLOT, CROP_MENU_BACK_SLOT);
         checkSlotClash("作物仓库", WAREHOUSE_FILL_SLOT, WAREHOUSE_BACK_SLOT);
 
         // ---- 材质（gui.yml，空则保留默认） ----
@@ -297,6 +303,10 @@ public final class ConfigManager {
         loadGuiItem(gui, "Farm.Farmplot");
         loadGuiItem(gui, "Farm.Nextpage");
         loadGuiItem(gui, "Farm.Prvepage");
+        loadGuiItem(gui, "Farm.PrveBack");
+        loadGuiItem(gui, "Farm.Free");
+        loadGuiItem(gui, "Farm.Yellow");
+        loadGuiItem(gui, "Farm.Red");
         loadGuiItem(gui, "Farm.Bone");
         loadGuiItem(gui, "Farmplot.CropGrowing");
         loadGuiItem(gui, "Farmplot.CropMature");
@@ -308,11 +318,13 @@ public final class ConfigManager {
         loadGuiItem(gui, "Bone.Update");
         loadGuiItem(gui, "Bone.Nextpage");
         loadGuiItem(gui, "Bone.Prvepage");
+        loadGuiItem(gui, "Bone.Back");
         loadGuiItem(gui, "Crop.WheatSeed");
         loadGuiItem(gui, "Crop.Wheat");
         loadGuiItem(gui, "Crop.CropStorage");
         loadGuiItem(gui, "Crop.Nextpage");
         loadGuiItem(gui, "Crop.Prvepage");
+        loadGuiItem(gui, "Crop.Back");
         loadGuiItem(gui, "CropStorage");
         loadGuiItem(gui, "CropStorage.Restock");
         loadGuiItem(gui, "CropStorage.Back");
@@ -324,6 +336,10 @@ public final class ConfigManager {
             MSG_FARM_FULL = color(m, "farm-full", MSG_FARM_FULL);
             MSG_FARM_LIMIT = color(m, "farm-limit", MSG_FARM_LIMIT);
             MSG_PAGE_LOCKED = color(m, "page-locked", MSG_PAGE_LOCKED);
+            MSG_FARM_PAGE_LOCKED = color(m, "farm-page-locked", MSG_FARM_PAGE_LOCKED);
+            MSG_FARM_UNLOCK_DONE = color(m, "farm-unlock-done", MSG_FARM_UNLOCK_DONE);
+            MSG_FARM_UNLOCK_NO_MONEY = color(m, "farm-unlock-no-money", MSG_FARM_UNLOCK_NO_MONEY);
+            MSG_FARM_UNLOCK_RED = color(m, "farm-unlock-red", MSG_FARM_UNLOCK_RED);
             MSG_NO_SEED = color(m, "no-seed", MSG_NO_SEED);
             MSG_REPLANT_DONE = color(m, "replant-done", MSG_REPLANT_DONE);
             MSG_REPLANT_EMPTY = color(m, "replant-empty", MSG_REPLANT_EMPTY);
