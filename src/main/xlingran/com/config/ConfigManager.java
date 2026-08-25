@@ -49,7 +49,7 @@ public final class ConfigManager {
     /** 返回上一个菜单按钮槽位（第6行第1格，羽毛） */ public static int FARM_BACK_SLOT = 45;
     /** 上一页按钮槽位（第6行第4格，仅第 2 页起） */ public static int FARM_PREV_SLOT = 48;
     /** 下一页按钮槽位（第6行第6格） */ public static int FARM_NEXT_SLOT = 50;
-    /** 骨粉储存器入口槽位（第6行第9格） */ public static int FARM_BONEMEAL_SLOT = 53;
+    /** 骨粉储存器入口槽位（第6行第5格） */ public static int FARM_BONEMEAL_SLOT = 49;
 
     // ================= 农田管理 GUI（gui.yml Farmmanage.*.slot 可覆盖） =================
     /** 补种按钮槽位（第2行第2格） */ public static int FARM_MANAGE_REPLANT_SLOT = 10;
@@ -73,6 +73,7 @@ public final class ConfigManager {
     /** 每页免费种植格数（第 1 格默认解锁） */ public static int FARM_UNLOCK_FREE = 1;
     /** 每页待解锁批次大小（黄色格数量，一次付费解锁一批） */ public static int FARM_UNLOCK_BATCH = 3;
     /** 解锁一批种植格所需金币 */ public static int FARM_UNLOCK_PRICE = 1000;
+    /** 满一页后是否自动解锁下一页（false 时仅能通过 /xlr crop update farm 解锁） */ public static boolean FARM_AUTO_UNLOCK_NEXT_PAGE = true;
     /** 查询某作物某等级产量 [产物, 种子]；未在 FarmUpdate 配置返回 null。 */
     public static int[] getFarmDrop(String cropId, int level) {
         return FARM_DROPS.get(cropId + ":" + level);
@@ -224,6 +225,7 @@ public final class ConfigManager {
         FARM_MAX_FARMS = Math.max(0, cfg.getInt("farm.default-max-farms", FARM_MAX_FARMS));
         FARM_UNLOCK_BATCH = Math.max(1, cfg.getInt("farm.unlock-batch", FARM_UNLOCK_BATCH));
         FARM_UNLOCK_PRICE = Math.max(0, cfg.getInt("farm.unlock-price", FARM_UNLOCK_PRICE));
+        FARM_AUTO_UNLOCK_NEXT_PAGE = cfg.getBoolean("farm.auto-unlock-next-page", FARM_AUTO_UNLOCK_NEXT_PAGE);
         WAREHOUSE_MAX_STOCK = Math.max(0, cfg.getLong("warehouse.max-stock", WAREHOUSE_MAX_STOCK));
         REPLANT_COST_SEED = Math.max(1, cfg.getInt("farm.replant-cost-seed", REPLANT_COST_SEED));
         BONEMEAL_FAST_FACTOR = Math.max(0.1, cfg.getDouble("bonemeal.fast-factor", BONEMEAL_FAST_FACTOR));

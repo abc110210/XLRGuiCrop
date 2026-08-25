@@ -215,8 +215,9 @@ public final class GuiManager implements Listener {
         if (db.getUnlockedCount(uuid, page) < ConfigManager.FARM_UNLOCK_FREE) {
             db.setUnlockedCountAtLeast(uuid, page, ConfigManager.FARM_UNLOCK_FREE);
         }
-        // 当前页 28 格全部解锁后才自动解锁下一页（未确定项，采用「满页→自动解锁下一页」）
-        if (db.getUnlockedCount(uuid, page) >= ConfigManager.FARM_PAGE_SLOTS) {
+        // 满一页后是否自动解锁下一页（config.yml farm.auto-unlock-next-page；false 时仅能通过指令解锁）
+        if (ConfigManager.FARM_AUTO_UNLOCK_NEXT_PAGE
+                && db.getUnlockedCount(uuid, page) >= ConfigManager.FARM_PAGE_SLOTS) {
             db.setFarmUnlockedPagesAtLeast(uuid, page + 2);
         }
         GuiHolder h = new GuiHolder(GuiType.FARM, uuid, page, -1, null);
@@ -447,7 +448,7 @@ public final class GuiManager implements Listener {
                 ? guiItem("Farm.Prvepage", Material.ARROW, "§a上一页", List.of()) : frame();
         // 下一页（第6行第6格；是否可进入由点击时判断页解锁）
         contents[ConfigManager.FARM_NEXT_SLOT] = guiItem("Farm.Nextpage", Material.ARROW, "§a下一页", List.of());
-        // 第6行第9格：骨粉储存器入口
+        // 第6行第5格：骨粉储存器入口
         contents[ConfigManager.FARM_BONEMEAL_SLOT] = guiItem("Farm.Bone", Material.BONE_MEAL, "§a骨粉储存器",
                 List.of("§7点击打开骨粉储存器"));
         inv.setContents(contents);
@@ -1452,25 +1453,25 @@ public final class GuiManager implements Listener {
         return item;
     }
 
-    /** 农田页已解锁格（绿色玻璃，可种植）。 */
+    /** 农田页已解锁格（绿色玻璃板，可种植）。 */
     private ItemStack freeTile(boolean isFree) {
-        return guiItem("Farm.Free", isFree ? Material.GREEN_STAINED_GLASS : Material.GREEN_STAINED_GLASS,
+        return guiItem("Farm.Free", Material.GREEN_STAINED_GLASS_PANE,
                 "§a免费种植格 - 种植作物",
                 List.of("§7点击选择要创建的作物"));
     }
 
-    /** 农田页待解锁批（黄色玻璃，付费购买一批）。 */
+    /** 农田页待解锁批（黄色玻璃板，付费购买一批）。 */
     private ItemStack yellowTile() {
         String cost = String.valueOf(ConfigManager.FARM_UNLOCK_PRICE);
         String count = String.valueOf(ConfigManager.FARM_UNLOCK_BATCH);
-        return guiItem("Farm.Yellow", Material.YELLOW_STAINED_GLASS,
+        return guiItem("Farm.Yellow", Material.YELLOW_STAINED_GLASS_PANE,
                 "§e花费 $" + cost + " 购买 " + count + " 个种植格",
                 List.of("§7点击付费解锁下一批种植格"));
     }
 
-    /** 农田页前置未解锁（红色玻璃，不可种植）。 */
+    /** 农田页前置未解锁（红色玻璃板，不可种植）。 */
     private ItemStack redTile() {
-        return guiItem("Farm.Red", Material.RED_STAINED_GLASS,
+        return guiItem("Farm.Red", Material.RED_STAINED_GLASS_PANE,
                 "§c请先解锁前置种植格，才可继续扩建",
                 List.of());
     }

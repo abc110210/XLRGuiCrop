@@ -88,28 +88,28 @@ Farm:
         name: "&a返回上一个菜单"
         Lore:
             - ""
-    # 绿色可种植格
+    # 绿色可种植格（玻璃板）
     Free:
-        material: GREEN_STAINED_GLASS
+        material: GREEN_STAINED_GLASS_PANE
         name: "&a免费种植格 - 种植作物"
         Lore:
             - "点击选择要创建的作物"
-    # 黄色待解锁批
+    # 黄色待解锁批（玻璃板）
     Yellow:
-        material: YELLOW_STAINED_GLASS
+        material: YELLOW_STAINED_GLASS_PANE
         name: "&e花费 $X 购买 3 个种植格"
         Lore:
             - "点击付费解锁下一批种植格"
-    # 红色前置未解锁
+    # 红色前置未解锁（玻璃板）
     Red:
-        material: RED_STAINED_GLASS
+        material: RED_STAINED_GLASS_PANE
         name: "&c请先解锁前置种植格，才可继续扩建"
         Lore:
             - ""
-    # 骨粉储存器入口
+    # 骨粉储存器入口（第6行第5格 slot49）
     Bone:
         material: BONE_MEAL
-        slot: 53
+        slot: 49
         name: "&a骨粉储存器"
         Lore:
             - ""

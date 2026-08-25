@@ -30,6 +30,9 @@ farm:
   unlock-batch: 3
   # 解锁一批黄色种植格所需金币（config.yml 数值配置）
   unlock-price: 1000
+  # 玩家解锁满一页（28 格）后是否自动解锁下一页：
+  # true = 满页自动解锁下一页；false = 关闭自动解锁，只能通过管理员指令 /xlr crop update farm <玩家> <页数> 解锁
+  auto-unlock-next-page: true
 
 # ---------- 仓库 ----------
 warehouse:
@@ -80,7 +83,8 @@ crops:
     show-product-stage: 3
   carrot:
     icon: CARROT
-    seed-material: CARROT
+    # 占位种子素材（与产物不同，会生成独立种子仓库入口；随意填，后续可改）
+    seed-material: GOLDEN_CARROT
     product-material: CARROT
     name: "胡萝卜"
     farm-name: "胡萝卜农田"
@@ -91,7 +95,7 @@ crops:
     show-product-stage: 3
   potato:
     icon: POTATO
-    seed-material: POTATO
+    seed-material: BAKED_POTATO
     product-material: POTATO
     name: "马铃薯"
     farm-name: "马铃薯农田"
@@ -126,7 +130,7 @@ crops:
     show-product-stage: 3
   bamboo:
     icon: BAMBOO
-    seed-material: BAMBOO
+    seed-material: BAMBOO_SAPLING
     product-material: BAMBOO
     name: "竹子"
     farm-name: "竹子农田"
@@ -137,7 +141,7 @@ crops:
     show-product-stage: 3
   cocoa:
     icon: COCOA_BEANS
-    seed-material: COCOA_BEANS
+    seed-material: SWEET_BERRIES
     product-material: COCOA_BEANS
     name: "可可豆"
     farm-name: "可可豆农田"
@@ -148,7 +152,7 @@ crops:
     show-product-stage: 3
   sugarcane:
     icon: SUGAR_CANE
-    seed-material: SUGAR_CANE
+    seed-material: DRIED_KELP
     product-material: SUGAR_CANE
     name: "甘蔗"
     farm-name: "甘蔗农田"
@@ -159,7 +163,7 @@ crops:
     show-product-stage: 3
   cactus:
     icon: CACTUS
-    seed-material: CACTUS
+    seed-material: CACTUS_FLOWER
     product-material: CACTUS
     name: "仙人掌"
     farm-name: "仙人掌农田"
@@ -170,7 +174,7 @@ crops:
     show-product-stage: 3
   mushroom:
     icon: BROWN_MUSHROOM
-    seed-material: BROWN_MUSHROOM
+    seed-material: RED_MUSHROOM
     product-material: BROWN_MUSHROOM
     name: "蘑菇"
     farm-name: "蘑菇农田"
@@ -181,7 +185,7 @@ crops:
     show-product-stage: 3
   kelp:
     icon: KELP
-    seed-material: KELP
+    seed-material: TUBE_CORAL
     product-material: KELP
     name: "海带"
     farm-name: "海带农田"
@@ -192,7 +196,7 @@ crops:
     show-product-stage: 3
   sea_pickle:
     icon: SEA_PICKLE
-    seed-material: SEA_PICKLE
+    seed-material: FIRE_CORAL
     product-material: SEA_PICKLE
     name: "海泡菜"
     farm-name: "海泡菜农田"
@@ -203,7 +207,7 @@ crops:
     show-product-stage: 3
   glow_berries:
     icon: GLOW_BERRIES
-    seed-material: GLOW_BERRIES
+    seed-material: GLOW_LICHEN
     product-material: GLOW_BERRIES
     name: "发光浆果"
     farm-name: "发光浆果农田"
@@ -214,7 +218,7 @@ crops:
     show-product-stage: 3
   nether_wart:
     icon: NETHER_WART
-    seed-material: NETHER_WART
+    seed-material: NETHER_SPROUTS
     product-material: NETHER_WART
     name: "下界疣"
     farm-name: "下界疣农田"
@@ -225,7 +229,7 @@ crops:
     show-product-stage: 3
   crimson_fungus:
     icon: CRIMSON_FUNGUS
-    seed-material: CRIMSON_FUNGUS
+    seed-material: CRIMSON_ROOTS
     product-material: CRIMSON_FUNGUS
     name: "绯红菌"
     farm-name: "绯红菌农田"
@@ -236,7 +240,7 @@ crops:
     show-product-stage: 3
   warped_fungus:
     icon: WARPED_FUNGUS
-    seed-material: WARPED_FUNGUS
+    seed-material: WARPED_ROOTS
     product-material: WARPED_FUNGUS
     name: "扭曲菌"
     farm-name: "扭曲菌农田"
@@ -247,7 +251,7 @@ crops:
     show-product-stage: 3
   chorus_flower:
     icon: CHORUS_FLOWER
-    seed-material: CHORUS_FLOWER
+    seed-material: CHORUS_FRUIT
     product-material: CHORUS_FLOWER
     name: "歌莱花"
     farm-name: "歌莱花农田"
