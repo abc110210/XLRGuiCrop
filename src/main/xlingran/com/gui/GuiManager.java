@@ -108,6 +108,10 @@ public final class GuiManager implements Listener {
         private final boolean farmOrigin;
         /** 返回导航：ESC 或羽毛「返回上一个菜单」时执行的打开动作（可为 null=根级关闭）。 */
         private Runnable back;
+        /** 当前渲染的 Inventory（InventoryHolder 契约）。 */
+        private transient Inventory inventory;
+        /** 代码主动切换打开新界面前置位：对应关闭不再触发返回导航（替代 Paper 的 InventoryCloseEvent.Reason）。 */
+        private boolean autoSwitch;
 
         GuiHolder(GuiType type, UUID uuid, int page, int farmSlot, WarehouseResource resource) {
             this(type, uuid, page, farmSlot, resource, -1, false);
@@ -149,6 +153,10 @@ public final class GuiManager implements Listener {
 
         @Override
         public Inventory getInventory() { return inventory; }
+
+        void setAutoSwitch(boolean autoSwitch) { this.autoSwitch = autoSwitch; }
+
+        boolean isAutoSwitch() { return autoSwitch; }
     }
 
     /** 内部 28 格（第2~5行第2~8列）的 local 索引 -> 原始槽位。 */
@@ -216,6 +224,7 @@ public final class GuiManager implements Listener {
         Inventory inv = Bukkit.createInventory(h, 54, farmTitle(page));
         h.setInventory(inv);
         renderFarm(inv, h);
+        markAutoSwitch(player);
         player.openInventory(inv);
     }
 
@@ -241,6 +250,7 @@ public final class GuiManager implements Listener {
         Inventory inv = Bukkit.createInventory(h, 54, growthTitle);
         h.setInventory(inv);
         renderGrowth(inv, h);
+        markAutoSwitch(player);
         player.openInventory(inv);
     }
 
@@ -261,6 +271,7 @@ public final class GuiManager implements Listener {
         Inventory inv = Bukkit.createInventory(h, 27, ConfigManager.GUI_FARM_MANAGE_TITLE);
         h.setInventory(inv);
         renderFarmManage(inv, h);
+        markAutoSwitch(player);
         player.openInventory(inv);
     }
 
@@ -276,6 +287,7 @@ public final class GuiManager implements Listener {
         Inventory inv = Bukkit.createInventory(h, 27, ConfigManager.GUI_MENU_TITLE);
         h.setInventory(inv);
         renderMenu(inv);
+        markAutoSwitch(player);
         player.openInventory(inv);
     }
 
@@ -300,7 +312,8 @@ public final class GuiManager implements Listener {
         h.setBack(() -> openFarm(player, createSlot < 0 ? 0 : createSlot / ConfigManager.FARM_PAGE_SLOTS));
         Inventory inv = Bukkit.createInventory(h, 54, ConfigManager.GUI_CREATE_CROP_TITLE);
         h.setInventory(inv);
-        renderCreateCrop(inv);
+        renderCreateCrop(inv, h);
+        markAutoSwitch(player);
         player.openInventory(inv);
     }
 
@@ -326,6 +339,7 @@ public final class GuiManager implements Listener {
         Inventory inv = Bukkit.createInventory(h, 54, cropMenuTitle(page));
         h.setInventory(inv);
         renderCropMenu(inv, h);
+        markAutoSwitch(player);
         player.openInventory(inv);
     }
 
@@ -359,6 +373,7 @@ public final class GuiManager implements Listener {
         Inventory inv = Bukkit.createInventory(h, 54, pageTitle(ConfigManager.GUI_BONEMEAL_TITLE, page));
         h.setInventory(inv);
         renderBonemeal(inv, h);
+        markAutoSwitch(player);
         player.openInventory(inv);
     }
 
@@ -378,6 +393,7 @@ public final class GuiManager implements Listener {
         Inventory inv = Bukkit.createInventory(h, 54, ConfigManager.GUI_WAREHOUSE_TITLE.replace("%Farmitem%", resource.getTitle()));
         h.setInventory(inv);
         renderWarehouse(inv, h);
+        markAutoSwitch(player);
         player.openInventory(inv);
     }
 
@@ -683,8 +699,9 @@ public final class GuiManager implements Listener {
     /**
      * ESC / 背包键关闭自定义 GUI 时返回「上一个菜单」（需求4）。
      *
-     * <p>仅当玩家主动关闭（Reason.PLAYER）且该界面设置了 back 时才返回；
-     * 插件主动打开新界面触发的是 OPEN_NEW，不在此列，因此不会连环误触发。
+     * <p>仅当玩家主动关闭（非代码切换）且该界面设置了 back 时才返回；
+     * 插件主动打开新界面触发的关闭已由 markAutoSwitch 前置标记，掉线/死亡也不触发，因此不会连环误触发。
+     * 注：这里不使用 InventoryCloseEvent.getReason()/Reason —— 那是 Paper 专用 API，Spigot 没有。
      */
     @EventHandler
     public void onClose(InventoryCloseEvent e) {
@@ -692,16 +709,13 @@ public final class GuiManager implements Listener {
             return;
         }
         Runnable back = h.getBack();
-        if (back == null) {
-            return; // 根级（主菜单）无需返回
-        }
-        if (e.getReason() == InventoryCloseEvent.Reason.OPEN_NEW
-                || e.getReason() == InventoryCloseEvent.Reason.DEATH
-                || e.getReason() == InventoryCloseEvent.Reason.DISCONNECT
-                || e.getReason() == InventoryCloseEvent.Reason.TELEPORT) {
-            return;
+        if (h.isAutoSwitch() || back == null) {
+            return; // 代码主动切换关闭 / 根级（主菜单）无需返回
         }
         if (e.getPlayer() instanceof Player player) {
+            if (!player.isOnline() || player.getHealth() <= 0) {
+                return; // 掉线 / 死亡不返回
+            }
             Runnable task = back;
             Bukkit.getScheduler().runTask(plugin, () -> task.run());
         }
@@ -1330,6 +1344,17 @@ public final class GuiManager implements Listener {
 
     private void scheduleOpen(Runnable task) {
         Bukkit.getScheduler().runTask(plugin, task);
+    }
+
+    /**
+     * 标记玩家当前打开的自定义 GUI 为「代码主动切换」：随后 openInventory 触发的 InventoryCloseEvent
+     * 会命中该标记，onClose 便不再执行返回导航（替代 Paper 的 Reason.OPEN_NEW 判断）。
+     */
+    private void markAutoSwitch(Player player) {
+        Inventory top = player.getOpenInventory().getTopInventory();
+        if (top != null && top.getHolder() instanceof GuiHolder h) {
+            h.setAutoSwitch(true);
+        }
     }
 
     /**

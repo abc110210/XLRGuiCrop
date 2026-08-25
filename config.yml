@@ -21,9 +21,11 @@ farm:
   replant-cost-seed: 1
   # 删除农田聊天二次确认超时（秒）
   delete-confirm-timeout-sec: 60
-  # 玩家默认可拥有的农田数量上限
-  # （拥有动态权限 xlr.crop.create.farm.<数字> 的玩家按权限数字，见 plugin.yml）
-  default-max-farms: 1
+  # 玩家默认可拥有的农田数量上限；设为 0 = 关闭该上限（不限制），
+  # 农田扩张完全由下方农田页解锁体系（unlock-batch / unlock-price）控制——
+  # 解锁多少种植格就能建多少田，避免「解锁了格子却因上限建不了田」的逻辑矛盾。
+  # 拥有动态权限 xlr.crop.create.farm.<数字> 的玩家仍按权限数字设上限（见 plugin.yml）
+  default-max-farms: 0
   # 农田页内「黄色待解锁批」的格数（一次付费解锁一批；默认 3 个）
   unlock-batch: 3
   # 解锁一批黄色种植格所需金币（config.yml 数值配置）

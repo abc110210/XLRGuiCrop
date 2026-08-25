@@ -99,8 +99,9 @@ public final class ConfigManager {
     }
 
     /**
-     * 玩家可拥有农田上限：动态权限 xlr.crop.create.farm.&lt;N&gt;（取拥有的最大 N），
-     * 未拥有任何动态权限时用默认 {@link #FARM_MAX_FARMS}。
+     * 玩家可拥有农田上限：动态权限 xlr.crop.create.farm.&lt;N&gt;（取拥有的最大 N）；
+     * 未拥有任何动态权限时用默认 {@link #FARM_MAX_FARMS}——为 0 表示不限制
+     * （扩张完全由农田页付费解锁体系控制，避免「解锁了格子却因上限建不了田」的逻辑矛盾）。
      */
     public static int allowedFarms(org.bukkit.entity.Player player) {
         for (int n = 100; n >= 1; n--) {
@@ -108,7 +109,7 @@ public final class ConfigManager {
                 return n;
             }
         }
-        return FARM_MAX_FARMS;
+        return FARM_MAX_FARMS <= 0 ? Integer.MAX_VALUE : FARM_MAX_FARMS;
     }
 
     // ================= 创建农田 GUI（gui.yml Farmcreate.Wheat.slot 可覆盖） =================
@@ -219,7 +220,8 @@ public final class ConfigManager {
         // ---- 数值（config.yml） ----
         TICK_INTERVAL_SEC = Math.max(1, cfg.getInt("tick.interval-sec", TICK_INTERVAL_SEC));
         DELETE_CONFIRM_TIMEOUT_SEC = Math.max(1, cfg.getInt("farm.delete-confirm-timeout-sec", DELETE_CONFIRM_TIMEOUT_SEC));
-        FARM_MAX_FARMS = Math.max(1, cfg.getInt("farm.default-max-farms", FARM_MAX_FARMS));
+        // 0 = 关闭农田数量上限（扩张完全由农田页解锁体系控制）；>0 为默认上限
+        FARM_MAX_FARMS = Math.max(0, cfg.getInt("farm.default-max-farms", FARM_MAX_FARMS));
         FARM_UNLOCK_BATCH = Math.max(1, cfg.getInt("farm.unlock-batch", FARM_UNLOCK_BATCH));
         FARM_UNLOCK_PRICE = Math.max(0, cfg.getInt("farm.unlock-price", FARM_UNLOCK_PRICE));
         WAREHOUSE_MAX_STOCK = Math.max(0, cfg.getLong("warehouse.max-stock", WAREHOUSE_MAX_STOCK));
