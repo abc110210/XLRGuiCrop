@@ -130,7 +130,8 @@ crops:
     show-product-stage: 3
   bamboo:
     icon: BAMBOO
-    seed-material: BAMBOO_SAPLING
+    # 竹苗(BAMBOO_SAPLING)不是可拾取物品，用木棍占位
+    seed-material: STICK
     product-material: BAMBOO
     name: "竹子"
     farm-name: "竹子农田"

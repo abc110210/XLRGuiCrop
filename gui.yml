@@ -94,10 +94,10 @@ Farm:
         name: "&a免费种植格 - 种植作物"
         Lore:
             - "点击选择要创建的作物"
-    # 黄色待解锁批（玻璃板）
+    # 黄色待解锁批（玻璃板；%money%/%count% 由代码填充）
     Yellow:
         material: YELLOW_STAINED_GLASS_PANE
-        name: "&e花费 $X 购买 3 个种植格"
+        name: "&e花费 %money% 金币购买 %count% 个种植格"
         Lore:
             - "点击付费解锁下一批种植格"
     # 红色前置未解锁（玻璃板）
@@ -538,17 +538,17 @@ Bone:
         name: ""
         Lore:
             - ""
-    # 升级解锁（%money%/%page% 由代码填充；第6行第6格 slot50）
+    # 升级解锁（每页固定第6行第5格 slot49；%money%/%page% 由代码填充）
     Update:
         material: CHEST
-        slot: 50
+        slot: 49
         name: "&a升级解锁下一页"
         Lore:
             - "&b花费 %money% 金币来解锁第 %page% 页"
-    # 下一页（第6行第5格 slot49）
+    # 下一页（第6行第6格 slot50）
     Nextpage:
         material: ARROW
-        slot: 49
+        slot: 50
         name: "&a下一页"
         Lore:
             - ""

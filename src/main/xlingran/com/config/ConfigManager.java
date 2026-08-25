@@ -131,8 +131,8 @@ public final class ConfigManager {
     /** 每作物单类库存（种子/产物分别计算）上限，超出部分不再入账 */ public static long WAREHOUSE_MAX_STOCK = 100000;
 
     // ================= 骨粉储存器 GUI（gui.yml Bone.*.slot 可覆盖） =================
-    /** 升级按钮槽位（第1页第6行第6格） */ public static int BONEMEAL_UNLOCK_SLOT = 50;
-    /** 下一页槽位（第6行第5格） */ public static int BONEMEAL_NEXT_SLOT = 49;
+    /** 升级按钮槽位（每页固定第6行第5格） */ public static int BONEMEAL_UNLOCK_SLOT = 49;
+    /** 下一页槽位（第6行第6格） */ public static int BONEMEAL_NEXT_SLOT = 50;
     /** 上一页槽位（第6行第4格，仅第 2 页起） */ public static int BONEMEAL_PREV_SLOT = 48;
     /** 返回上一个菜单槽位（第6行第1格，羽毛） */ public static int BONEMEAL_BACK_SLOT = 45;
     /** 每页展示格数（布局固定 28，勿改） */ public static final int BONEMEAL_PAGE_SLOTS = 28;

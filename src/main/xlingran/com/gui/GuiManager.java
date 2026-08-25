@@ -549,11 +549,10 @@ public final class GuiManager implements Listener {
         if (h.getPage() > 0) {
             contents[ConfigManager.BONEMEAL_PREV_SLOT] = guiItem("Bone.Prvepage", Material.ARROW, "§a上一页", List.of());
         }
-        // 下一页（第6行第5格；第 2 页起是否可进入由点击时判断页解锁）
+        // 下一页（第6行第6格；第 2 页起是否可进入由点击时判断页解锁）
         contents[ConfigManager.BONEMEAL_NEXT_SLOT] = guiItem("Bone.Nextpage", Material.ARROW, "§a下一页", List.of());
-        if (h.getPage() == 0) {
-            contents[ConfigManager.BONEMEAL_UNLOCK_SLOT] = unlockChest(db.getUnlockedPages(h.getUuid()));
-        }
+        // 升级解锁（每页固定第6行第5格，点击解锁下一页）
+        contents[ConfigManager.BONEMEAL_UNLOCK_SLOT] = unlockChest(db.getUnlockedPages(h.getUuid()));
         // 返回上一个菜单（第6行第1格，羽毛）
         contents[ConfigManager.BONEMEAL_BACK_SLOT] = backFeather("Bone.Back", "§a返回上一个菜单");
         inv.setContents(contents);
@@ -1000,7 +999,8 @@ public final class GuiManager implements Listener {
             scheduleOpen(() -> openBonemeal(player, h.getPage() - 1, h.isFromFarm()));
             return;
         }
-        if (raw == ConfigManager.BONEMEAL_UNLOCK_SLOT && h.getPage() == 0) {
+        if (raw == ConfigManager.BONEMEAL_UNLOCK_SLOT) {
+            // 升级解锁按钮每页固定显示，任意页点击均解锁下一页
             handleUnlock(player, uuid, h.isFromFarm());
             return;
         }
@@ -1460,13 +1460,13 @@ public final class GuiManager implements Listener {
                 List.of("§7点击选择要创建的作物"));
     }
 
-    /** 农田页待解锁批（黄色玻璃板，付费购买一批）。 */
+    /** 农田页待解锁批（黄色玻璃板，付费购买一批；名称用 %money%/%count% 占位符）。 */
     private ItemStack yellowTile() {
-        String cost = String.valueOf(ConfigManager.FARM_UNLOCK_PRICE);
-        String count = String.valueOf(ConfigManager.FARM_UNLOCK_BATCH);
         return guiItem("Farm.Yellow", Material.YELLOW_STAINED_GLASS_PANE,
-                "§e花费 $" + cost + " 购买 " + count + " 个种植格",
-                List.of("§7点击付费解锁下一批种植格"));
+                "§e花费 %money% 金币购买 %count% 个种植格",
+                List.of("§7点击付费解锁下一批种植格"),
+                "%money%", String.valueOf(ConfigManager.FARM_UNLOCK_PRICE),
+                "%count%", String.valueOf(ConfigManager.FARM_UNLOCK_BATCH));
     }
 
     /** 农田页前置未解锁（红色玻璃板，不可种植）。 */
